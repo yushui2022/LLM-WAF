@@ -104,6 +104,17 @@ class GatewayTests(unittest.TestCase):
         finally:
             main_module.policy_store = original_policy_store
 
+    def test_stream_frame_transform_extracts_usage(self):
+        frame = (
+            'data: {"choices":[{"delta":{"content":"hello"}}],'
+            '"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}'
+        )
+        transformed, changed, findings, usage = main_module._transform_sse_frame(frame)
+        self.assertIn("data:", transformed)
+        self.assertFalse(changed)
+        self.assertEqual(findings, [])
+        self.assertEqual(usage["total_tokens"], 5)
+
 
 if __name__ == "__main__":
     unittest.main()

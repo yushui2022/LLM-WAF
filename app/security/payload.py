@@ -54,6 +54,23 @@ def extract_response_text(body: dict[str, Any]) -> str:
     return "\n".join(p for p in parts if p)
 
 
+def extract_usage(body: dict[str, Any]) -> dict[str, int]:
+    usage = body.get("usage")
+    if not isinstance(usage, dict):
+        return {}
+
+    result: dict[str, int] = {}
+    for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+        value = usage.get(key)
+        if isinstance(value, int):
+            result[key] = value
+        elif isinstance(value, float):
+            result[key] = int(value)
+        elif isinstance(value, str) and value.isdigit():
+            result[key] = int(value)
+    return result
+
+
 def redact_response_body(body: dict[str, Any], redact: Callable[[str], str]) -> dict[str, Any]:
     redacted = copy.deepcopy(body)
     for choice in redacted.get("choices", []) or []:
@@ -128,4 +145,3 @@ def _redact_content_with_flag(content: Any, redact: Callable[[str], str]) -> tup
 
 def json_dumps(data: Any) -> str:
     return json.dumps(data, ensure_ascii=False, separators=(",", ":"))
-

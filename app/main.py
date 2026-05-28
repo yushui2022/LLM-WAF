@@ -27,6 +27,7 @@ from app.policy import PolicyStore, RoutePolicy
 from app.security.payload import (
     extract_request_text,
     extract_response_text,
+    extract_usage,
     json_dumps,
     redact_request_body,
     redact_response_body,
@@ -271,18 +272,21 @@ async def _proxy_buffered(
     response_headers = _response_headers(upstream)
     output_findings: list[dict[str, Any]] = []
     output_redacted = False
+    usage: dict[str, int] = {}
 
-    if policy.output_scanning and _looks_like_json(upstream):
+    if _looks_like_json(upstream):
         try:
             response_body = upstream.json()
-            output_text = extract_response_text(response_body)
-            output_scan = scanner.scan_output(output_text)
-            output_findings = output_scan.to_audit_findings()
-            output_redacted = bool(output_scan.redacted and policy.redact_outputs)
-            if output_redacted:
-                response_body = redact_response_body(response_body, scanner.redact_output)
-                content = json_dumps(response_body).encode("utf-8")
-                response_headers.pop("content-length", None)
+            usage = extract_usage(response_body)
+            if policy.output_scanning:
+                output_text = extract_response_text(response_body)
+                output_scan = scanner.scan_output(output_text)
+                output_findings = output_scan.to_audit_findings()
+                output_redacted = bool(output_scan.redacted and policy.redact_outputs)
+                if output_redacted:
+                    response_body = redact_response_body(response_body, scanner.redact_output)
+                    content = json_dumps(response_body).encode("utf-8")
+                    response_headers.pop("content-length", None)
         except (ValueError, TypeError):
             pass
 
@@ -300,6 +304,8 @@ async def _proxy_buffered(
             "output_redacted": output_redacted,
         }
     )
+    if usage:
+        event["usage"] = usage
     _audit(event, policy)
 
     return Response(
@@ -351,6 +357,7 @@ async def _proxy_streaming(
 
     output_findings: list[dict[str, Any]] = []
     output_redacted = False
+    output_usage: dict[str, int] = {}
     content_type = upstream.headers.get("content-type", "text/event-stream")
 
     async def generate():
@@ -365,15 +372,25 @@ async def _proxy_streaming(
                 buffer += decoder.decode(chunk)
                 while "\n\n" in buffer:
                     frame, buffer = buffer.split("\n\n", 1)
-                    transformed, changed, frame_findings = _transform_sse_frame(frame, redact_outputs=policy.redact_outputs)
+                    transformed, changed, frame_findings, frame_usage = _transform_sse_frame(
+                        frame,
+                        redact_outputs=policy.redact_outputs,
+                    )
                     output_redacted = output_redacted or changed
                     output_findings.extend(frame_findings)
+                    if frame_usage:
+                        output_usage.update(frame_usage)
                     yield transformed + "\n\n"
             tail = buffer + decoder.decode(b"", final=True)
             if tail:
-                transformed, changed, frame_findings = _transform_sse_frame(tail, redact_outputs=policy.redact_outputs)
+                transformed, changed, frame_findings, frame_usage = _transform_sse_frame(
+                    tail,
+                    redact_outputs=policy.redact_outputs,
+                )
                 output_redacted = output_redacted or changed
                 output_findings.extend(frame_findings)
+                if frame_usage:
+                    output_usage.update(frame_usage)
                 yield transformed
         finally:
             await upstream.aclose()
@@ -391,6 +408,8 @@ async def _proxy_streaming(
                     "output_redacted": output_redacted,
                 }
             )
+            if output_usage:
+                event["usage"] = output_usage
             _audit(event, policy)
 
     return StreamingResponse(
@@ -401,9 +420,13 @@ async def _proxy_streaming(
     )
 
 
-def _transform_sse_frame(frame: str, redact_outputs: bool = True) -> tuple[str, bool, list[dict[str, Any]]]:
+def _transform_sse_frame(
+    frame: str,
+    redact_outputs: bool = True,
+) -> tuple[str, bool, list[dict[str, Any]], dict[str, int]]:
     changed = False
     findings: list[dict[str, Any]] = []
+    usage: dict[str, int] = {}
     out_lines: list[str] = []
 
     for line in frame.splitlines():
@@ -420,6 +443,10 @@ def _transform_sse_frame(frame: str, redact_outputs: bool = True) -> tuple[str, 
             out_lines.append(line)
             continue
 
+        frame_usage = extract_usage(payload)
+        if frame_usage:
+            usage.update(frame_usage)
+
         output_text = extract_response_text(payload)
         if output_text:
             scan = scanner.scan_output(output_text)
@@ -431,7 +458,7 @@ def _transform_sse_frame(frame: str, redact_outputs: bool = True) -> tuple[str, 
             changed = changed or payload_changed
         out_lines.append("data: " + json_dumps(payload))
 
-    return "\n".join(out_lines), changed, findings
+    return "\n".join(out_lines), changed, findings, usage
 
 
 def _upstream_url(request_path: str) -> str:

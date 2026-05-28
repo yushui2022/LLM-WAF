@@ -1,6 +1,6 @@
 import unittest
 
-from app.security.payload import extract_request_text, redact_request_body
+from app.security.payload import extract_request_text, extract_usage, redact_request_body
 from app.security.scanner import SecurityScanner
 
 
@@ -42,7 +42,19 @@ class PayloadTests(unittest.TestCase):
         self.assertEqual(redacted["messages"][1]["content"][0]["text"], "phone [REDACTED:cn_mobile]")
         self.assertEqual(redacted["messages"][1]["content"][1]["type"], "image_url")
 
+    def test_extracts_usage_tokens(self):
+        usage = extract_usage(
+            {
+                "usage": {
+                    "prompt_tokens": 12,
+                    "completion_tokens": 7,
+                    "total_tokens": "19",
+                    "ignored": "value",
+                }
+            }
+        )
+        self.assertEqual(usage, {"prompt_tokens": 12, "completion_tokens": 7, "total_tokens": 19})
+
 
 if __name__ == "__main__":
     unittest.main()
-

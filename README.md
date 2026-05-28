@@ -34,6 +34,7 @@ Most "LLM firewalls" make you rewrite your agent, break SSE streaming, or ship y
 - Route policy YAML for per-route scan / redaction settings
 - Optional gateway API-key authentication
 - Optional in-memory per-principal rate limiting
+- Token usage tracking from provider `usage` fields
 - JSONL audit log
 - Built-in `/dashboard`
 - Docker Compose one-command startup
@@ -206,6 +207,22 @@ curl http://localhost:8080/v1/chat/completions \
 
 The request is forwarded with sensitive fields replaced, and a `redacted` event is written to `var/audit/events.jsonl`.
 
+## Usage tracking
+
+When an upstream provider returns an OpenAI-compatible `usage` object, LLM-WAF records it in the audit event:
+
+```json
+{
+  "usage": {
+    "prompt_tokens": 12,
+    "completion_tokens": 7,
+    "total_tokens": 19
+  }
+}
+```
+
+The dashboard sums `total_tokens` across recent events. Streaming responses are also supported when the provider emits `usage` in an SSE frame, for example via OpenAI-style stream usage chunks. This MVP does not estimate dollar cost yet; the next step is a model pricing table.
+
 ## Configuration
 
 | Variable | Default | Description |
@@ -232,13 +249,13 @@ A request enters the gateway, is filtered before it reaches the model, and is fi
 
 ```mermaid
 %%{init: {'theme':'base','themeVariables':{
-  'background':'#0a0a0b',
-  'primaryColor':'#16161a',
-  'primaryTextColor':'#f5f5f7',
-  'primaryBorderColor':'#2a2a2e',
-  'lineColor':'#6b6b70',
-  'secondaryColor':'#1c1c20',
-  'tertiaryColor':'#101013',
+  'background':'#ffffff',
+  'primaryColor':'#f6f8fa',
+  'primaryTextColor':'#1f2328',
+  'primaryBorderColor':'#d0d7de',
+  'lineColor':'#57606a',
+  'secondaryColor':'#ddf4ff',
+  'tertiaryColor':'#ffffff',
   'fontFamily':'ui-sans-serif, -apple-system, Segoe UI, sans-serif'
 }}}%%
 flowchart LR
@@ -265,19 +282,19 @@ flowchart LR
 
 ```mermaid
 %%{init: {'theme':'base','themeVariables':{
-  'background':'#0a0a0b',
-  'primaryColor':'#16161a',
-  'primaryTextColor':'#f5f5f7',
-  'primaryBorderColor':'#2a2a2e',
-  'lineColor':'#6b6b70',
-  'actorBkg':'#16161a',
-  'actorTextColor':'#f5f5f7',
-  'actorBorder':'#2a2a2e',
-  'signalColor':'#8a8a90',
-  'signalTextColor':'#c8c8cc',
-  'noteBkgColor':'#1c1c20',
-  'noteTextColor':'#c8c8cc',
-  'noteBorderColor':'#2a2a2e',
+  'background':'#ffffff',
+  'primaryColor':'#f6f8fa',
+  'primaryTextColor':'#1f2328',
+  'primaryBorderColor':'#d0d7de',
+  'lineColor':'#57606a',
+  'actorBkg':'#f6f8fa',
+  'actorTextColor':'#1f2328',
+  'actorBorder':'#d0d7de',
+  'signalColor':'#57606a',
+  'signalTextColor':'#1f2328',
+  'noteBkgColor':'#ddf4ff',
+  'noteTextColor':'#1f2328',
+  'noteBorderColor':'#54aeff',
   'fontFamily':'ui-sans-serif, -apple-system, Segoe UI, sans-serif'
 }}}%%
 sequenceDiagram
@@ -307,11 +324,13 @@ sequenceDiagram
 
 ```mermaid
 %%{init: {'theme':'base','themeVariables':{
-  'background':'#0a0a0b',
-  'primaryColor':'#16161a',
-  'primaryTextColor':'#f5f5f7',
-  'primaryBorderColor':'#2a2a2e',
-  'lineColor':'#6b6b70',
+  'background':'#ffffff',
+  'primaryColor':'#f6f8fa',
+  'primaryTextColor':'#1f2328',
+  'primaryBorderColor':'#d0d7de',
+  'lineColor':'#57606a',
+  'secondaryColor':'#ddf4ff',
+  'tertiaryColor':'#ffffff',
   'fontFamily':'ui-sans-serif, -apple-system, Segoe UI, sans-serif'
 }}}%%
 flowchart TB

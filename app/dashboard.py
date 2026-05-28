@@ -12,10 +12,11 @@ def render_dashboard(events: list[dict[str, Any]]) -> str:
     stats = Counter(event.get("decision", "unknown") for event in events)
     total = len(events)
     findings = sum(int(event.get("finding_count", 0)) for event in events)
+    tokens = sum(_total_tokens(event) for event in events)
 
     rows = "\n".join(_render_row(event) for event in recent)
     if not rows:
-        rows = '<tr><td colspan="9" class="empty">No requests yet. Send traffic through /v1/chat/completions.</td></tr>'
+        rows = '<tr><td colspan="10" class="empty">No requests yet. Send traffic through /v1/chat/completions.</td></tr>'
 
     return f"""<!doctype html>
 <html lang="en">
@@ -32,7 +33,7 @@ def render_dashboard(events: list[dict[str, Any]]) -> str:
     h1 {{ margin: 0 0 6px; font-size: 24px; letter-spacing: 0; }}
     .sub {{ color: var(--muted); font-size: 14px; }}
     main {{ padding: 22px 28px 32px; }}
-    .stats {{ display: grid; grid-template-columns: repeat(5, minmax(130px, 1fr)); gap: 12px; margin-bottom: 18px; }}
+    .stats {{ display: grid; grid-template-columns: repeat(6, minmax(130px, 1fr)); gap: 12px; margin-bottom: 18px; }}
     .stat {{ background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 14px; }}
     .label {{ color: var(--muted); font-size: 12px; text-transform: uppercase; }}
     .value {{ font-size: 28px; font-weight: 700; margin-top: 4px; }}
@@ -66,6 +67,7 @@ def render_dashboard(events: list[dict[str, Any]]) -> str:
       {_stat("Redacted", stats.get("redacted", 0))}
       {_stat("Blocked", stats.get("blocked", 0))}
       {_stat("Findings", findings)}
+      {_stat("Tokens", tokens)}
     </section>
     <table>
       <thead>
@@ -76,6 +78,7 @@ def render_dashboard(events: list[dict[str, Any]]) -> str:
           <th>Principal</th>
           <th>Stream</th>
           <th>Status</th>
+          <th>Tokens</th>
           <th>Latency</th>
           <th>Trace</th>
           <th>Findings</th>
@@ -99,6 +102,7 @@ def _render_row(event: dict[str, Any]) -> str:
     model = escape(str(event.get("model", "")))
     principal = escape(str(event.get("principal", "anonymous")))
     stream = "yes" if event.get("stream") else "no"
+    tokens = _total_tokens(event)
     latency = event.get("latency_ms")
     latency_text = "" if latency is None else f"{latency} ms"
     findings = event.get("findings", []) or []
@@ -116,7 +120,24 @@ def _render_row(event: dict[str, Any]) -> str:
       <td><code>{principal}</code></td>
       <td>{stream}</td>
       <td>{status}</td>
+      <td>{tokens or ""}</td>
       <td>{escape(latency_text)}</td>
       <td><code>{trace_id[:12]}</code></td>
       <td class="findings">{finding_text}</td>
     </tr>"""
+
+
+def _total_tokens(event: dict[str, Any]) -> int:
+    usage = event.get("usage")
+    if not isinstance(usage, dict):
+        return 0
+    value = usage.get("total_tokens")
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    prompt = usage.get("prompt_tokens")
+    completion = usage.get("completion_tokens")
+    if isinstance(prompt, int) and isinstance(completion, int):
+        return prompt + completion
+    return 0

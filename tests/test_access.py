@@ -1,6 +1,7 @@
 import unittest
+from collections import defaultdict
 
-from app.access import GatewayAuth, InMemoryRateLimiter
+from app.access import GatewayAuth, InMemoryRateLimiter, RedisRateLimiter, create_rate_limiter
 
 
 class GatewayAuthTests(unittest.TestCase):
@@ -43,7 +44,33 @@ class RateLimiterTests(unittest.TestCase):
         self.assertFalse(third.allowed)
         self.assertGreaterEqual(third.retry_after_seconds, 1)
 
+    def test_redis_limiter_shares_state_across_instances(self):
+        client = FakeRedis()
+        first = RedisRateLimiter(2, "redis://localhost:6379/0", client=client)
+        second = RedisRateLimiter(2, "redis://localhost:6379/0", client=client)
+        self.assertTrue(first.check("key:a").allowed)
+        self.assertTrue(second.check("key:a").allowed)
+        third = second.check("key:a")
+        self.assertFalse(third.allowed)
+        self.assertEqual(third.backend, "redis")
+
+    def test_create_rate_limiter_requires_redis_url(self):
+        with self.assertRaises(ValueError):
+            create_rate_limiter(10, backend="redis", redis_url="")
+
+
+class FakeRedis:
+    def __init__(self):
+        self.values = defaultdict(int)
+        self.expirations = {}
+
+    def incr(self, key: str) -> int:
+        self.values[key] += 1
+        return self.values[key]
+
+    def expire(self, key: str, seconds: int) -> None:
+        self.expirations[key] = seconds
+
 
 if __name__ == "__main__":
     unittest.main()
-

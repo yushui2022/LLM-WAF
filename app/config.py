@@ -62,6 +62,8 @@ class Settings:
     gateway_api_keys: tuple[str, ...] = _env_csv("GATEWAY_API_KEYS")
     gateway_api_key_header: str = os.getenv("GATEWAY_API_KEY_HEADER", "X-LLM-WAF-Key")
     rate_limit_per_minute: int = _env_int("RATE_LIMIT_PER_MINUTE", 0)
+    rate_limit_backend: str = os.getenv("RATE_LIMIT_BACKEND", "memory")
+    redis_url: str = os.getenv("REDIS_URL", "")
     policy_path: Path = Path(os.getenv("POLICY_PATH", "config/policy.yaml"))
     rules_path: Path = Path(os.getenv("RULES_PATH", "config/rules.yaml"))
     pricing_path: Path = Path(os.getenv("PRICING_PATH", "config/pricing.yaml"))

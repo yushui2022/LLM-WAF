@@ -1,4 +1,4 @@
-"""Gateway authentication and in-memory rate limiting."""
+"""Gateway authentication and rate limiting."""
 
 from __future__ import annotations
 
@@ -61,6 +61,7 @@ class RateLimitResult:
     retry_after_seconds: int = 0
     limit: int = 0
     window_seconds: int = 60
+    backend: str = "memory"
 
 
 class InMemoryRateLimiter:
@@ -83,7 +84,7 @@ class InMemoryRateLimiter:
 
     def check(self, principal: str) -> RateLimitResult:
         if not self.enabled:
-            return RateLimitResult(True, remaining=0, limit=0, window_seconds=self.window_seconds)
+            return RateLimitResult(True, remaining=0, limit=0, window_seconds=self.window_seconds, backend="memory")
 
         now = time.monotonic()
         cutoff = now - self.window_seconds
@@ -100,6 +101,7 @@ class InMemoryRateLimiter:
                     retry_after_seconds=retry_after,
                     limit=self.limit,
                     window_seconds=self.window_seconds,
+                    backend="memory",
                 )
 
             bucket.append(now)
@@ -108,5 +110,72 @@ class InMemoryRateLimiter:
                 remaining=max(0, self.limit - len(bucket)),
                 limit=self.limit,
                 window_seconds=self.window_seconds,
+                backend="memory",
             )
 
+
+class RedisRateLimiter:
+    """Shared fixed-window limiter for multi-instance deployments."""
+
+    def __init__(self, limit_per_minute: int, redis_url: str, window_seconds: int = 60, key_prefix: str = "llm-waf:rate", client=None):
+        self.limit = max(0, limit_per_minute)
+        self.redis_url = redis_url
+        self.window_seconds = window_seconds
+        self.key_prefix = key_prefix
+        self._client = client
+
+    @property
+    def enabled(self) -> bool:
+        return self.limit > 0
+
+    def check(self, principal: str) -> RateLimitResult:
+        if not self.enabled:
+            return RateLimitResult(True, remaining=0, limit=0, window_seconds=self.window_seconds, backend="redis")
+
+        now = int(time.time())
+        window = now // self.window_seconds
+        retry_after = max(1, ((window + 1) * self.window_seconds) - now)
+        key = f"{self.key_prefix}:{_stable_key(principal)}:{window}"
+        client = self._redis()
+        count = int(client.incr(key))
+        if count == 1:
+            client.expire(key, self.window_seconds * 2)
+
+        if count > self.limit:
+            return RateLimitResult(
+                False,
+                remaining=0,
+                retry_after_seconds=retry_after,
+                limit=self.limit,
+                window_seconds=self.window_seconds,
+                backend="redis",
+            )
+        return RateLimitResult(
+            True,
+            remaining=max(0, self.limit - count),
+            limit=self.limit,
+            window_seconds=self.window_seconds,
+            backend="redis",
+        )
+
+    def _redis(self):
+        if self._client is None:
+            try:
+                import redis
+            except ImportError as exc:
+                raise RuntimeError("Redis rate limiting requires the redis package.") from exc
+            self._client = redis.Redis.from_url(self.redis_url, decode_responses=True)
+        return self._client
+
+
+def create_rate_limiter(limit_per_minute: int, backend: str = "memory", redis_url: str = ""):
+    normalized = backend.strip().lower()
+    if normalized == "redis":
+        if not redis_url:
+            raise ValueError("REDIS_URL is required when RATE_LIMIT_BACKEND=redis")
+        return RedisRateLimiter(limit_per_minute, redis_url)
+    return InMemoryRateLimiter(limit_per_minute)
+
+
+def _stable_key(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()[:24]

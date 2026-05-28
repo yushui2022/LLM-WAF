@@ -209,7 +209,7 @@ Tasks:
 - Add config validation endpoint.
 - Add log rotation guidance for JSONL audit logs.
 - Add optional SQLite audit backend.
-- Add Redis-backed rate limiter option.
+- Add Redis-backed rate limiter option. (done)
 - Add Kubernetes/Helm example after Docker Compose is stable.
 
 Exit criteria:

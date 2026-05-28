@@ -21,7 +21,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 
-from app.access import AuthResult, GatewayAuth, InMemoryRateLimiter, RateLimitResult
+from app.access import AuthResult, GatewayAuth, RateLimitResult, create_rate_limiter
 from app.audit import AuditLog
 from app.config import settings
 from app.dashboard import render_dashboard
@@ -57,7 +57,7 @@ if settings.enable_cors:
 scanner = SecurityScanner()
 audit_log = AuditLog(settings.audit_log_path)
 gateway_auth = GatewayAuth(settings.gateway_api_keys, settings.gateway_api_key_header)
-rate_limiter = InMemoryRateLimiter(settings.rate_limit_per_minute)
+rate_limiter = create_rate_limiter(settings.rate_limit_per_minute, settings.rate_limit_backend, settings.redis_url)
 policy_store = PolicyStore.load(
     settings.policy_path,
     RoutePolicy(
@@ -675,6 +675,7 @@ def _base_event(
     }
     if rate_limit is not None and rate_limit.limit:
         event["rate_limit"] = {
+            "backend": rate_limit.backend,
             "limit": rate_limit.limit,
             "remaining": rate_limit.remaining,
             "retry_after_seconds": rate_limit.retry_after_seconds,

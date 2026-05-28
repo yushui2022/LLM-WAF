@@ -48,7 +48,7 @@ Most "LLM firewalls" make you rewrite your agent, break SSE streaming, or ship y
 Being upfront so you know what you're getting:
 
 - Streaming output scanning uses a bounded rolling window. It can detect patterns that straddle nearby SSE frames, but previously emitted bytes cannot be rewritten.
-- Rate limiting is in-memory only in the MVP; use Redis or a reverse proxy for multi-replica deployments.
+- Rate limiting defaults to local memory. Use `RATE_LIMIT_BACKEND=redis` for multi-replica deployments.
 - Anthropic / Gemini **native** protocols are not supported (use their OpenAI-compatible endpoints).
 - Chinese prompt-injection rule set is still early; keep adding real attack samples and benign hard negatives before trusting recall claims.
 - In streaming mode, `FAIL_CLOSED=true` can terminate the SSE stream with an error event after headers have already been sent.
@@ -307,7 +307,9 @@ Audit events include:
 | `MAX_BODY_BYTES` | `2000000` | Maximum request body size. |
 | `GATEWAY_API_KEYS` | empty | Comma-separated gateway keys. Empty disables gateway authentication. |
 | `GATEWAY_API_KEY_HEADER` | `X-LLM-WAF-Key` | Header used for gateway authentication. |
-| `RATE_LIMIT_PER_MINUTE` | `0` | In-memory per-principal limit. `0` disables rate limiting. |
+| `RATE_LIMIT_PER_MINUTE` | `0` | Per-principal request limit. `0` disables rate limiting. |
+| `RATE_LIMIT_BACKEND` | `memory` | Rate-limit backend: `memory` for single instance, `redis` for shared multi-instance limits. |
+| `REDIS_URL` | empty | Redis connection URL required when `RATE_LIMIT_BACKEND=redis`. |
 | `POLICY_PATH` | `config/policy.yaml` | YAML route policy file. Missing file falls back to env/default settings. |
 | `RULES_PATH` | `config/rules.yaml` | YAML scanner rule file. Missing or invalid files fall back to built-in Python rules. |
 | `PRICING_PATH` | `config/pricing.yaml` | YAML model pricing file for cost estimates. |

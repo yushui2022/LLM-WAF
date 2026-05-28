@@ -50,7 +50,7 @@ Being upfront so you know what you're getting:
 - Streaming output scanning uses a bounded rolling window. It can detect patterns that straddle nearby SSE frames, but previously emitted bytes cannot be rewritten.
 - Rate limiting is in-memory only in the MVP; use Redis or a reverse proxy for multi-replica deployments.
 - Anthropic / Gemini **native** protocols are not supported (use their OpenAI-compatible endpoints).
-- Chinese prompt-injection rule set is intentionally small in v0.1; community PRs welcome.
+- Chinese prompt-injection rule set is still early; keep adding real attack samples and benign hard negatives before trusting recall claims.
 - `FAIL_CLOSED` is configurable but currently a no-op placeholder for scanner-backend failure handling in a future release.
 
 ## Quick start

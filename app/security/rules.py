@@ -112,6 +112,38 @@ FALLBACK_INPUT_RULES: tuple[Rule, ...] = (
         r"(现在的你是|你现在是|从现在开始你是|角色扮演).{0,20}(不受限制|无视规则|黑客|邪恶|无限制)",
         "中文角色劫持攻击。",
     ),
+    Rule(
+        "inj.hidden_rules_extract.zh",
+        "system_prompt_extraction",
+        "critical",
+        "block",
+        r"(原样|完整|逐字|一字不漏|全部).{0,12}(复述|输出|打印|展示|告诉我).{0,20}(最开始|一开始|后台|内部|隐藏|原始).{0,12}(规则|设定|提示|指令)",
+        "中文隐藏规则或初始指令提取。",
+    ),
+    Rule(
+        "inj.obey_user_only.zh",
+        "prompt_injection",
+        "critical",
+        "block",
+        r"(从现在开始|接下来|以后).{0,12}(只听我|只服从我|只服从用户|不要听系统|别听系统|无视系统)",
+        "中文要求模型忽略系统约束并只服从用户。",
+    ),
+    Rule(
+        "inj.safety_bypass.zh",
+        "jailbreak",
+        "high",
+        "block",
+        r"(关闭|禁用|绕开|跳过).{0,12}(安全策略|安全规则|内容审查|风控|合规限制|审核机制)",
+        "中文安全策略或审核机制绕过。",
+    ),
+    Rule(
+        "inj.ignore_previous.zh_hant",
+        "prompt_injection",
+        "critical",
+        "block",
+        r"(忽略|無視|忘記|不要管).{0,12}(之前|上面|以上|所有|原來).{0,12}(指令|規則|要求|設定)",
+        "繁体中文指令覆盖攻击。",
+    ),
 )
 
 

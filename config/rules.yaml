@@ -94,6 +94,46 @@ input:
     tags: [zh, role_hijack, jailbreak]
     recommended_remediation: 将角色扮演限制在可信系统提示和应用允许的范围内。
 
+  - rule_id: inj.hidden_rules_extract.zh
+    category: system_prompt_extraction
+    severity: critical
+    action: block
+    pattern: >-
+      (原样|完整|逐字|一字不漏|全部).{0,12}(复述|输出|打印|展示|告诉我).{0,20}(最开始|一开始|后台|内部|隐藏|原始).{0,12}(规则|设定|提示|指令)
+    description: 中文隐藏规则或初始指令提取。
+    tags: [zh, system_prompt, extraction]
+    recommended_remediation: 阻止用户要求原样复述后台规则、初始设定或隐藏指令。
+
+  - rule_id: inj.obey_user_only.zh
+    category: prompt_injection
+    severity: critical
+    action: block
+    pattern: >-
+      (从现在开始|接下来|以后).{0,12}(只听我|只服从我|只服从用户|不要听系统|别听系统|无视系统)
+    description: 中文要求模型忽略系统约束并只服从用户。
+    tags: [zh, prompt_injection, override]
+    recommended_remediation: 阻止要求模型改写信任边界或只服从用户的指令。
+
+  - rule_id: inj.safety_bypass.zh
+    category: jailbreak
+    severity: high
+    action: block
+    pattern: >-
+      (关闭|禁用|绕开|跳过).{0,12}(安全策略|安全规则|内容审查|风控|合规限制|审核机制)
+    description: 中文安全策略或审核机制绕过。
+    tags: [zh, jailbreak, bypass]
+    recommended_remediation: 阻止关闭、禁用或绕过安全策略和审核机制的请求。
+
+  - rule_id: inj.ignore_previous.zh_hant
+    category: prompt_injection
+    severity: critical
+    action: block
+    pattern: >-
+      (忽略|無視|忘記|不要管).{0,12}(之前|上面|以上|所有|原來).{0,12}(指令|規則|要求|設定)
+    description: 繁体中文指令覆盖攻击。
+    tags: [zh, hant, prompt_injection, override]
+    recommended_remediation: 阻止繁体中文中试图覆盖上级指令或规则的提示。
+
 sensitive:
   - rule_id: secret.openai_key
     category: secret

@@ -70,7 +70,7 @@ Goal: make the existing MVP reliable enough for outside users to try without obv
 
 Tasks:
 
-- Expand `tests/eval_set.jsonl` with more Chinese and multilingual attack samples. (done; continue expanding with real bypass reports)
+- Expand `tests/eval_set.jsonl` with more Chinese and multilingual attack samples. (done twice; continue expanding with real bypass reports)
 - Add benign hard negatives for security education content.
 - Add benign hard negatives for normal roleplay, writing, and instruction-following prompts.
 - Add encoded and obfuscated injection samples:

@@ -203,6 +203,8 @@ The rule file has three top-level lists:
 
 Each rule supports `rule_id`, `category`, `severity`, `action`, `pattern`, `description`, optional `replacement`, optional `tags`, optional `references`, and optional `recommended_remediation`. If the file is missing or invalid, LLM-WAF falls back to the built-in Python rules so the gateway does not start without protection.
 
+The rule set is still early, especially for Chinese prompt injection. See [docs/rule-quality.md](docs/rule-quality.md) for the rule maturity model, false-positive report format, bypass report format, and required eval gates for rule changes.
+
 ## Semantic scanner hook
 
 The built-in scanner is deterministic and rule-based. It is fast and local, but it is not a semantic classifier. To cover more complex attacks, configure an external scanner:

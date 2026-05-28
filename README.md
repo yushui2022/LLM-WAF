@@ -32,6 +32,7 @@ Most "LLM firewalls" make you rewrite your agent, break SSE streaming, or ship y
 - **Output redaction** for secrets / PII and simple system-prompt leak hints
 - `/v1/*` passthrough for non-chat routes such as `/v1/models`
 - Route policy YAML for per-route scan / redaction settings and rule disables
+- YAML scanner rule set with Python fallback defaults
 - Optional gateway API-key authentication
 - Optional in-memory per-principal rate limiting
 - Token usage tracking from provider `usage` fields
@@ -182,6 +183,24 @@ To use another policy file:
 POLICY_PATH=/etc/llm-waf/policy.yaml
 ```
 
+## Rule set
+
+Default scanner rules live in `config/rules.yaml`. You can point the gateway at another rule file:
+
+```env
+RULES_PATH=/etc/llm-waf/rules.yaml
+```
+
+The rule file has three top-level lists:
+
+| List | Purpose |
+|---|---|
+| `input` | Prompt-injection, jailbreak, role-tag, and system-prompt extraction rules. |
+| `sensitive` | PII and secret detectors used for input/output redaction. |
+| `output` | Response-side leakage detectors, such as system prompt leak hints. |
+
+Each rule supports `rule_id`, `category`, `severity`, `action`, `pattern`, `description`, optional `replacement`, optional `tags`, optional `references`, and optional `recommended_remediation`. If the file is missing or invalid, LLM-WAF falls back to the built-in Python rules so the gateway does not start without protection.
+
 ## Try it: blocking
 
 ```bash
@@ -287,6 +306,7 @@ Audit events include:
 | `GATEWAY_API_KEY_HEADER` | `X-LLM-WAF-Key` | Header used for gateway authentication. |
 | `RATE_LIMIT_PER_MINUTE` | `0` | In-memory per-principal limit. `0` disables rate limiting. |
 | `POLICY_PATH` | `config/policy.yaml` | YAML route policy file. Missing file falls back to env/default settings. |
+| `RULES_PATH` | `config/rules.yaml` | YAML scanner rule file. Missing or invalid files fall back to built-in Python rules. |
 | `PRICING_PATH` | `config/pricing.yaml` | YAML model pricing file for cost estimates. |
 | `REDACT_INPUTS` | `true` | Redact PII / secrets before forwarding. |
 | `SCAN_OUTPUTS` | `true` | Scan responses (streaming and non-streaming). |
@@ -432,7 +452,7 @@ The default input eval set lives at `tests/eval_set.jsonl`; the default output e
 
 Issues and PRs welcome — especially:
 
-- New Chinese / multilingual prompt-injection rules (`app/security/rules.py`)
+- New Chinese / multilingual prompt-injection rules (`config/rules.yaml`; keep Python fallback in `app/security/rules.py` aligned for now)
 - Benign hard negatives and attack samples (`tests/eval_set.jsonl`, `tests/output_eval_set.jsonl`)
 - Useful default route policies (`config/policy.yaml`)
 - Additional PII / secret detectors

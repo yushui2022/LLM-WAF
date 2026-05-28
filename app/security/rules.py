@@ -6,8 +6,13 @@ patterns block requests, while sensitive-data patterns redact by default.
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+import yaml
 
 
 @dataclass(frozen=True)
@@ -34,7 +39,7 @@ class Rule:
         return (self.category, self.severity, self.action)
 
 
-INPUT_RULES: tuple[Rule, ...] = (
+FALLBACK_INPUT_RULES: tuple[Rule, ...] = (
     Rule(
         "inj.ignore_previous.en",
         "prompt_injection",
@@ -110,7 +115,7 @@ INPUT_RULES: tuple[Rule, ...] = (
 )
 
 
-SENSITIVE_RULES: tuple[Rule, ...] = (
+FALLBACK_SENSITIVE_RULES: tuple[Rule, ...] = (
     Rule(
         "secret.openai_key",
         "secret",
@@ -186,7 +191,7 @@ SENSITIVE_RULES: tuple[Rule, ...] = (
 )
 
 
-OUTPUT_RULES: tuple[Rule, ...] = (
+FALLBACK_OUTPUT_RULES: tuple[Rule, ...] = (
     Rule(
         "out.system_prompt_leak.en",
         "system_prompt_leak",
@@ -206,3 +211,107 @@ OUTPUT_RULES: tuple[Rule, ...] = (
         "[REDACTED:system_prompt]",
     ),
 )
+
+
+@dataclass(frozen=True)
+class RuleSet:
+    input_rules: tuple[Rule, ...]
+    sensitive_rules: tuple[Rule, ...]
+    output_rules: tuple[Rule, ...]
+
+
+FALLBACK_RULE_SET = RuleSet(
+    input_rules=FALLBACK_INPUT_RULES,
+    sensitive_rules=FALLBACK_SENSITIVE_RULES,
+    output_rules=FALLBACK_OUTPUT_RULES,
+)
+
+
+def load_rule_set(path: Path) -> RuleSet:
+    """Load scanner rules from YAML, falling back to built-in rules on errors."""
+
+    if not path.exists():
+        return FALLBACK_RULE_SET
+
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            raw = yaml.safe_load(f) or {}
+    except (OSError, yaml.YAMLError):
+        return FALLBACK_RULE_SET
+
+    if not isinstance(raw, dict):
+        return FALLBACK_RULE_SET
+
+    return RuleSet(
+        input_rules=_load_rule_list(raw.get("input"), FALLBACK_INPUT_RULES),
+        sensitive_rules=_load_rule_list(raw.get("sensitive"), FALLBACK_SENSITIVE_RULES),
+        output_rules=_load_rule_list(raw.get("output"), FALLBACK_OUTPUT_RULES),
+    )
+
+
+def _load_rule_list(raw: Any, fallback: tuple[Rule, ...]) -> tuple[Rule, ...]:
+    if raw is None:
+        return fallback
+    if not isinstance(raw, list):
+        return fallback
+
+    rules: list[Rule] = []
+    for item in raw:
+        rule = _load_rule(item)
+        if rule is None:
+            return fallback
+        rules.append(rule)
+    return tuple(rules) or fallback
+
+
+def _load_rule(raw: Any) -> Rule | None:
+    if not isinstance(raw, dict):
+        return None
+
+    required = ("rule_id", "category", "severity", "action", "pattern", "description")
+    values: dict[str, Any] = {}
+    for field in required:
+        value = raw.get(field)
+        if not isinstance(value, str) or not value.strip():
+            return None
+        values[field] = value.strip()
+
+    replacement = raw.get("replacement")
+    if replacement is not None and not isinstance(replacement, str):
+        return None
+
+    rule = Rule(
+        rule_id=values["rule_id"],
+        category=values["category"],
+        severity=values["severity"],
+        action=values["action"],
+        pattern=values["pattern"],
+        description=values["description"],
+        replacement=replacement,
+        tags=_coerce_str_tuple(raw.get("tags")),
+        references=_coerce_str_tuple(raw.get("references")),
+        recommended_remediation=str(raw.get("recommended_remediation", "")).strip(),
+    )
+
+    try:
+        rule.regex
+    except re.error:
+        return None
+    return rule
+
+
+def _coerce_str_tuple(value: Any) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if isinstance(value, str):
+        return tuple(item.strip() for item in value.split(",") if item.strip())
+    if isinstance(value, list):
+        return tuple(str(item).strip() for item in value if str(item).strip())
+    return ()
+
+
+RULES_PATH = Path(os.getenv("RULES_PATH", "config/rules.yaml"))
+RULE_SET = load_rule_set(RULES_PATH)
+INPUT_RULES = RULE_SET.input_rules
+SENSITIVE_RULES = RULE_SET.sensitive_rules
+OUTPUT_RULES = RULE_SET.output_rules

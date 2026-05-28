@@ -36,6 +36,16 @@ class SecurityScanner:
     - output leak heuristics that redact.
     """
 
+    def __init__(
+        self,
+        input_rules: tuple[Rule, ...] | None = None,
+        sensitive_rules: tuple[Rule, ...] | None = None,
+        output_rules: tuple[Rule, ...] | None = None,
+    ):
+        self.input_rules = INPUT_RULES if input_rules is None else input_rules
+        self.sensitive_rules = SENSITIVE_RULES if sensitive_rules is None else sensitive_rules
+        self.output_rules = OUTPUT_RULES if output_rules is None else output_rules
+
     def scan_input(
         self,
         text: str,
@@ -45,7 +55,7 @@ class SecurityScanner:
         disabled_rule_ids = frozenset(disabled_rule_ids or ())
         disabled_categories = frozenset(disabled_categories or ())
         findings: list[Finding] = []
-        findings.extend(self._scan_static_rules(text, INPUT_RULES, disabled_rule_ids, disabled_categories))
+        findings.extend(self._scan_static_rules(text, self.input_rules, disabled_rule_ids, disabled_categories))
         findings.extend(self._scan_sensitive(text, disabled_rule_ids, disabled_categories))
 
         redacted = self.redact_sensitive(text, disabled_rule_ids, disabled_categories)
@@ -67,7 +77,7 @@ class SecurityScanner:
         findings.extend(
             self._scan_direct(
                 text,
-                OUTPUT_RULES,
+                self.output_rules,
                 source="output",
                 disabled_rule_ids=disabled_rule_ids,
                 disabled_categories=disabled_categories,
@@ -89,7 +99,7 @@ class SecurityScanner:
         disabled_rule_ids = frozenset(disabled_rule_ids or ())
         disabled_categories = frozenset(disabled_categories or ())
         redacted = text
-        for rule in SENSITIVE_RULES:
+        for rule in self.sensitive_rules:
             if not _rule_enabled(rule, disabled_rule_ids, disabled_categories):
                 continue
             redacted = rule.regex.sub(rule.replacement or "[REDACTED]", redacted)
@@ -104,7 +114,7 @@ class SecurityScanner:
         disabled_rule_ids = frozenset(disabled_rule_ids or ())
         disabled_categories = frozenset(disabled_categories or ())
         redacted = self.redact_sensitive(text, disabled_rule_ids, disabled_categories)
-        for rule in OUTPUT_RULES:
+        for rule in self.output_rules:
             if not _rule_enabled(rule, disabled_rule_ids, disabled_categories):
                 continue
             redacted = rule.regex.sub(rule.replacement or "[REDACTED]", redacted)
@@ -139,7 +149,7 @@ class SecurityScanner:
         disabled_categories: Collection[str],
     ) -> list[Finding]:
         findings: list[Finding] = []
-        for rule in SENSITIVE_RULES:
+        for rule in self.sensitive_rules:
             if not _rule_enabled(rule, disabled_rule_ids, disabled_categories):
                 continue
             for match in rule.regex.finditer(text):

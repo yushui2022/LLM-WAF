@@ -452,7 +452,7 @@ python scripts/evaluate.py --direction input --show-misses --min-precision 0.95 
 python scripts/evaluate.py --direction output --show-misses --min-precision 0.95 --min-recall 0.95
 ```
 
-The default input eval set lives at `tests/eval_set.jsonl`; the default output eval set lives at `tests/output_eval_set.jsonl`. Add both malicious samples and benign hard negatives when changing rules; the goal is to improve recall without quietly increasing false positives.
+The eval output includes aggregate metrics and per-category metrics. For stricter rule work, add `--min-category-recall 0.95` so a strong overall score cannot hide a weak category. The default input eval set lives at `tests/eval_set.jsonl`; the default output eval set lives at `tests/output_eval_set.jsonl`. Add both malicious samples and benign hard negatives when changing rules; the goal is to improve recall without quietly increasing false positives.
 
 ## Contributing
 

@@ -16,6 +16,8 @@ class EvaluateScriptTests(unittest.TestCase):
         _, metrics = evaluate(samples, direction="input")
         self.assertEqual(metrics["fp"], 0)
         self.assertEqual(metrics["fn"], 0)
+        self.assertIn("prompt_injection", metrics["by_category"])
+        self.assertEqual(metrics["by_category"]["prompt_injection"]["fn"], 0)
 
     def test_output_eval_set_has_expected_shape(self):
         samples = load_samples(Path("tests/output_eval_set.jsonl"))
@@ -28,6 +30,7 @@ class EvaluateScriptTests(unittest.TestCase):
         _, metrics = evaluate(samples, direction="output")
         self.assertEqual(metrics["fp"], 0)
         self.assertEqual(metrics["fn"], 0)
+        self.assertIn("system_prompt_leak", metrics["by_category"])
 
 
 if __name__ == "__main__":

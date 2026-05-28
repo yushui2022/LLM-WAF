@@ -77,23 +77,28 @@ def evaluate(samples: list[EvalSample], direction: Direction = "input") -> tuple
     results: list[EvalResult] = []
 
     tp = fp = tn = fn = 0
+    by_category: dict[str, dict[str, Any]] = {}
     for sample in samples:
         detected, finding_ids = _scan_sample(scanner, sample.text, direction)
         results.append(EvalResult(sample=sample, detected=detected, finding_ids=finding_ids))
+        category_metrics = by_category.setdefault(sample.category, {"samples": 0, "tp": 0, "fp": 0, "tn": 0, "fn": 0})
+        category_metrics["samples"] += 1
 
         if sample.label == 1 and detected:
             tp += 1
+            category_metrics["tp"] += 1
         elif sample.label == 1 and not detected:
             fn += 1
+            category_metrics["fn"] += 1
         elif sample.label == 0 and detected:
             fp += 1
+            category_metrics["fp"] += 1
         else:
             tn += 1
+            category_metrics["tn"] += 1
 
-    precision = tp / (tp + fp) if tp + fp else 0.0
-    recall = tp / (tp + fn) if tp + fn else 0.0
-    f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
-    fpr = fp / (fp + tn) if fp + tn else 0.0
+    for category_metrics in by_category.values():
+        _add_rates(category_metrics)
 
     metrics = {
         "direction": direction,
@@ -102,12 +107,25 @@ def evaluate(samples: list[EvalSample], direction: Direction = "input") -> tuple
         "fp": fp,
         "tn": tn,
         "fn": fn,
-        "precision": precision,
-        "recall": recall,
-        "f1": f1,
-        "false_positive_rate": fpr,
+        "by_category": dict(sorted(by_category.items())),
     }
+    _add_rates(metrics)
     return results, metrics
+
+
+def _add_rates(metrics: dict[str, Any]) -> None:
+    tp = int(metrics.get("tp", 0))
+    fp = int(metrics.get("fp", 0))
+    tn = int(metrics.get("tn", 0))
+    fn = int(metrics.get("fn", 0))
+    precision = tp / (tp + fp) if tp + fp else 0.0
+    recall = tp / (tp + fn) if tp + fn else 0.0
+    f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
+    fpr = fp / (fp + tn) if fp + tn else 0.0
+    metrics["precision"] = precision
+    metrics["recall"] = recall
+    metrics["f1"] = f1
+    metrics["false_positive_rate"] = fpr
 
 
 def print_summary(metrics: dict[str, Any]) -> None:
@@ -121,6 +139,27 @@ def print_summary(metrics: dict[str, Any]) -> None:
     print(f"recall   : {metrics['recall']:.2%}")
     print(f"f1       : {metrics['f1']:.2%}")
     print(f"fpr      : {metrics['false_positive_rate']:.2%}")
+    print_category_summary(metrics)
+
+
+def print_category_summary(metrics: dict[str, Any]) -> None:
+    categories = metrics.get("by_category", {})
+    if not categories:
+        return
+
+    print("\nBy category")
+    print("-" * 30)
+    for category, values in categories.items():
+        positive_count = values["tp"] + values["fn"]
+        if positive_count:
+            rates = f"precision={values['precision']:.2%} recall={values['recall']:.2%}"
+        else:
+            rates = f"fpr={values['false_positive_rate']:.2%}"
+        print(
+            f"{category}: samples={values['samples']} "
+            f"TP/FP/TN/FN={values['tp']}/{values['fp']}/{values['tn']}/{values['fn']} "
+            f"{rates}"
+        )
 
 
 def _format_decision(direction: Direction, positive: bool) -> str:
@@ -152,6 +191,7 @@ def main() -> int:
     parser.add_argument("--show-misses", action="store_true")
     parser.add_argument("--min-precision", type=float, default=0.0)
     parser.add_argument("--min-recall", type=float, default=0.0)
+    parser.add_argument("--min-category-recall", type=float, default=0.0)
     args = parser.parse_args()
 
     default_file = "output_eval_set.jsonl" if args.direction == "output" else "eval_set.jsonl"
@@ -165,6 +205,10 @@ def main() -> int:
 
     if metrics["precision"] < args.min_precision or metrics["recall"] < args.min_recall:
         return 1
+    for values in metrics["by_category"].values():
+        has_positive_samples = values["tp"] + values["fn"] > 0
+        if has_positive_samples and values["recall"] < args.min_category_recall:
+            return 1
     return 0
 
 

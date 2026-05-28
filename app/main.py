@@ -75,6 +75,12 @@ policy_store = PolicyStore.load(
 )
 pricing_store = PricingStore.load(settings.pricing_path)
 
+UNSCANNED_GENERATION_ROUTES = {
+    "completions": "legacy OpenAI completions",
+    "messages": "Anthropic native messages",
+    "responses": "OpenAI responses",
+}
+
 
 @app.get("/")
 async def index() -> dict[str, str]:
@@ -223,6 +229,32 @@ async def passthrough(request: Request, path: str) -> Response:
             "rate_limited",
             "Gateway rate limit exceeded.",
             headers={"Retry-After": str(rate_limit.retry_after_seconds)},
+        )
+
+    if _is_unscanned_generation_route(request.method, path):
+        route_name = UNSCANNED_GENERATION_ROUTES.get(path.strip("/").lower(), "unsupported generation route")
+        event = _base_event(trace_id, request, started, model="", stream=False, auth=auth, policy=policy, rate_limit=rate_limit)
+        event.update(
+            {
+                "decision": "blocked",
+                "status_code": 501,
+                "reason": "unsupported_unscanned_generation_route",
+                "route": request.url.path,
+                "route_name": route_name,
+                "latency_ms": _elapsed_ms(started),
+                **_finding_fields([]),
+            }
+        )
+        _audit(event, policy)
+        return _error_response(
+            trace_id,
+            501,
+            "unsupported_protocol",
+            (
+                f"{request.url.path} can generate model output but is not scanned by LLM-WAF. "
+                "Use OpenAI-compatible /v1/chat/completions, or set "
+                "ALLOW_UNSCANNED_GENERATION_PASSTHROUGH=true to bypass WAF scanning explicitly."
+            ),
         )
 
     raw_body = await request.body()
@@ -668,6 +700,14 @@ def _upstream_url(request_path: str) -> str:
     elif path.startswith("/v1/"):
         path = path[3:]
     return settings.upstream_base_url.rstrip("/") + path
+
+
+def _is_unscanned_generation_route(method: str, path: str) -> bool:
+    if settings.allow_unscanned_generation_passthrough:
+        return False
+    if method.upper() == "GET":
+        return False
+    return path.strip("/").lower() in UNSCANNED_GENERATION_ROUTES
 
 
 def _forward_headers(request: Request, trace_id: str, auth: AuthResult) -> dict[str, str]:

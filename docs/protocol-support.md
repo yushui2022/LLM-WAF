@@ -10,8 +10,9 @@ This document is intentionally explicit so users do not assume native protocol c
 |---|---|---|
 | OpenAI-compatible `POST /v1/chat/completions` | Supported | Input scan, input redaction, tool-call argument scan, output scan, output redaction, streaming scan, audit. |
 | OpenAI-compatible `POST /v1/chat/completions` with SSE streaming | Supported | Rolling-window scan by default; optional `STREAM_HOLD_BACK_FRAMES` for stricter cross-frame redaction. |
-| OpenAI-compatible `/v1/*` non-chat routes | Passthrough | Auth, rate limit, and audit only. Request/response WAF scanning is not applied to generic passthrough routes. |
-| Anthropic native `/v1/messages` | Not supported natively | Use an OpenAI-compatible endpoint or adapter in front of LLM-WAF for now. |
+| OpenAI-compatible `/v1/*` non-chat routes | Passthrough | Safe non-generation routes get auth, rate limit, and audit only. Request/response WAF scanning is not applied to generic passthrough routes. |
+| Anthropic native `/v1/messages` | Blocked by default | Not scanned natively. Use an OpenAI-compatible endpoint or adapter in front of LLM-WAF for now. |
+| OpenAI `/v1/responses` and legacy `/v1/completions` | Blocked by default | Not scanned by the current chat-completions WAF path. |
 | Gemini native `generateContent` / `streamGenerateContent` | Not supported natively | Use an OpenAI-compatible endpoint or adapter in front of LLM-WAF for now. |
 
 ## What "OpenAI-Compatible" Means Here
@@ -45,6 +46,24 @@ Native protocol support should not be added as a thin blind proxy. Each native a
 7. Audit fields that identify the protocol and provider.
 
 Until those requirements are met, native support should stay marked as not supported.
+
+## Unsupported Generation Route Guard
+
+Known generation routes that are not scanned by the current WAF path return `501 unsupported_protocol` by default:
+
+- `/v1/messages`
+- `/v1/responses`
+- `/v1/completions`
+
+This prevents a dangerous silent failure mode where a native client appears to work through the gateway but bypasses prompt and output scanning.
+
+To intentionally allow raw passthrough, set:
+
+```env
+ALLOW_UNSCANNED_GENERATION_PASSTHROUGH=true
+```
+
+Use that only for controlled compatibility tests. It is not WAF protection.
 
 ## Recommended Upgrade Path
 

@@ -208,6 +208,7 @@ Tasks:
 - Add Docker healthcheck.
 - Add structured startup config summary without printing secrets.
 - Implement `FAIL_CLOSED` scanner failure behavior. (done)
+- Block known unscanned generation passthrough routes by default. (done)
 - Add config validation endpoint.
 - Add log rotation guidance for JSONL audit logs.
 - Add optional SQLite audit backend.

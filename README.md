@@ -31,7 +31,7 @@ Most "LLM firewalls" make you rewrite your agent, break SSE streaming, or ship y
 - **Input redaction** for email, Chinese mobile, Chinese ID, common API keys, generic secret assignments, GitHub tokens, AWS access keys, and private keys
 - **Output redaction** for secrets / PII and simple system-prompt leak hints
 - **Tool-call argument scanning** for OpenAI-compatible `tool_calls[].function.arguments` in requests and responses
-- `/v1/*` passthrough for non-chat routes such as `/v1/models`
+- `/v1/*` passthrough for safe non-generation routes such as `/v1/models`
 - Route policy YAML for per-route scan / redaction settings and rule disables
 - YAML scanner rule set with Python fallback defaults
 - Optional external semantic scanner hook for model/classifier-based findings
@@ -51,6 +51,7 @@ Being upfront so you know what you're getting:
 - Streaming output scanning uses a bounded rolling window. It can detect patterns that straddle nearby SSE frames, but previously emitted bytes cannot be rewritten. Set `STREAM_HOLD_BACK_FRAMES=1` or higher when you prefer stronger leak control over lowest first-token latency.
 - Rate limiting defaults to local memory. Use `RATE_LIMIT_BACKEND=redis` for multi-replica deployments.
 - Anthropic / Gemini **native** protocols are not supported (use their OpenAI-compatible endpoints). See [docs/protocol-support.md](docs/protocol-support.md) for the current support matrix.
+- Known unscanned generation routes such as `/v1/messages`, `/v1/responses`, and `/v1/completions` are blocked by default instead of being silently proxied without WAF scanning.
 - Chinese prompt-injection rule set is still early; keep adding real attack samples and benign hard negatives before trusting recall claims.
 - In streaming mode, `FAIL_CLOSED=true` can terminate the SSE stream with an error event after headers have already been sent.
 
@@ -79,7 +80,7 @@ UPSTREAM_BASE_URL=https://api.deepseek.com/v1
 UPSTREAM_BASE_URL=http://host.docker.internal:11434/v1
 ```
 
-LLM-WAF's native WAF extraction is currently scoped to OpenAI-compatible chat completions. Non-chat `/v1/*` routes are passthrough with auth, rate-limit, and audit only. See [docs/protocol-support.md](docs/protocol-support.md) before placing it in front of native Anthropic or Gemini clients.
+LLM-WAF's native WAF extraction is currently scoped to OpenAI-compatible chat completions. Safe non-generation `/v1/*` routes are passthrough with auth, rate-limit, and audit only. Known unscanned generation routes are rejected by default so they do not silently bypass the firewall. See [docs/protocol-support.md](docs/protocol-support.md) before placing it in front of native Anthropic or Gemini clients.
 
 ## Use from the OpenAI SDK
 
@@ -349,6 +350,7 @@ Audit events include:
 | `RATE_LIMIT_PER_MINUTE` | `0` | Per-principal request limit. `0` disables rate limiting. |
 | `RATE_LIMIT_BACKEND` | `memory` | Rate-limit backend: `memory` for single instance, `redis` for shared multi-instance limits. |
 | `REDIS_URL` | empty | Redis connection URL required when `RATE_LIMIT_BACKEND=redis`. |
+| `ALLOW_UNSCANNED_GENERATION_PASSTHROUGH` | `false` | When `false`, known generation routes that are not scanned by LLM-WAF, such as `/v1/messages`, `/v1/responses`, and `/v1/completions`, return `501` instead of raw passthrough. |
 | `POLICY_PATH` | `config/policy.yaml` | YAML route policy file. Missing file falls back to env/default settings. |
 | `RULES_PATH` | `config/rules.yaml` | YAML scanner rule file. Missing or invalid files fall back to built-in Python rules. |
 | `PRICING_PATH` | `config/pricing.yaml` | YAML model pricing file for cost estimates. |

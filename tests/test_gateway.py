@@ -81,6 +81,27 @@ class GatewayTests(unittest.TestCase):
             main_module.gateway_auth = original_auth
             main_module.rate_limiter = original_limiter
 
+    def test_blocks_unscanned_native_generation_passthrough_by_default(self):
+        original = main_module.settings.allow_unscanned_generation_passthrough
+        try:
+            object.__setattr__(main_module.settings, "allow_unscanned_generation_passthrough", False)
+            response = self.client.post(
+                "/v1/messages",
+                json={
+                    "model": "claude-test",
+                    "messages": [{"role": "user", "content": "hello"}],
+                    "max_tokens": 16,
+                },
+            )
+            self.assertEqual(response.status_code, 501)
+            self.assertEqual(response.json()["error"]["code"], "unsupported_protocol")
+        finally:
+            object.__setattr__(main_module.settings, "allow_unscanned_generation_passthrough", original)
+
+    def test_unscanned_generation_route_detection_allows_safe_metadata_get(self):
+        self.assertTrue(main_module._is_unscanned_generation_route("POST", "messages"))
+        self.assertFalse(main_module._is_unscanned_generation_route("GET", "models"))
+
     def test_policy_controls_block_status_code(self):
         original_policy_store = main_module.policy_store
         try:

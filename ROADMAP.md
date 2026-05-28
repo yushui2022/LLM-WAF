@@ -224,6 +224,7 @@ Exit criteria:
 Potential future work:
 
 - Semantic scanner plugin interface.
+- External semantic scanner HTTP hook. (done)
 - Optional local small-model classifier.
 - promptfoo or garak integration.
 - OWASP LLM Top 10 mapping in findings.

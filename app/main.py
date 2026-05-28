@@ -38,6 +38,7 @@ from app.security.payload import (
     redact_sse_json_payload,
 )
 from app.security.scanner import SecurityScanner
+from app.security.semantic import HttpSemanticScanner, merge_scan_results
 
 
 app = FastAPI(
@@ -55,6 +56,11 @@ if settings.enable_cors:
     )
 
 scanner = SecurityScanner()
+semantic_scanner = (
+    HttpSemanticScanner(settings.semantic_scanner_url, settings.semantic_scanner_timeout_seconds)
+    if settings.semantic_scanner_url
+    else None
+)
 audit_log = AuditLog(settings.audit_log_path)
 gateway_auth = GatewayAuth(settings.gateway_api_keys, settings.gateway_api_key_header)
 rate_limiter = create_rate_limiter(settings.rate_limit_per_minute, settings.rate_limit_backend, settings.redis_url)
@@ -151,7 +157,7 @@ async def chat_completions(request: Request) -> Response:
     event["prompt_sha256"] = _sha256(request_text)
 
     input_scan = (
-        _scan_input_safely(request_text, policy, event)
+        await _scan_input_safely(request_text, policy, event)
         if policy.input_scanning
         else None
     )
@@ -299,7 +305,7 @@ async def _proxy_buffered(
             usage = extract_usage(response_body)
             if policy.output_scanning:
                 output_text = extract_response_text(response_body)
-                output_scan = _scan_output_safely(output_text, policy, event)
+                output_scan = await _scan_output_safely(output_text, policy, event)
                 if output_scan is None and settings.fail_closed:
                     event.update(
                         {
@@ -688,20 +694,38 @@ def _audit(event: dict[str, Any], policy: RoutePolicy) -> None:
         audit_log.append(event)
 
 
-def _scan_input_safely(text: str, policy: RoutePolicy, event: dict[str, Any]) -> ScanResult | None:
+async def _scan_input_safely(text: str, policy: RoutePolicy, event: dict[str, Any]) -> ScanResult | None:
     try:
-        return scanner.scan_input(text, policy.disabled_rules, policy.disabled_categories)
+        result = scanner.scan_input(text, policy.disabled_rules, policy.disabled_categories)
     except Exception as exc:
         _record_scanner_error(event, exc)
         return None
 
-
-def _scan_output_safely(text: str, policy: RoutePolicy, event: dict[str, Any]) -> ScanResult | None:
+    if semantic_scanner is None:
+        return result
     try:
-        return scanner.scan_output(text, policy.disabled_rules, policy.disabled_categories)
+        semantic_result = await semantic_scanner.scan_input(text)
+    except Exception as exc:
+        _record_semantic_scanner_error(event, exc)
+        return None if settings.fail_closed else result
+    return merge_scan_results(result, semantic_result)
+
+
+async def _scan_output_safely(text: str, policy: RoutePolicy, event: dict[str, Any]) -> ScanResult | None:
+    try:
+        result = scanner.scan_output(text, policy.disabled_rules, policy.disabled_categories)
     except Exception as exc:
         _record_scanner_error(event, exc)
         return None
+
+    if semantic_scanner is None:
+        return result
+    try:
+        semantic_result = await semantic_scanner.scan_output(text)
+    except Exception as exc:
+        _record_semantic_scanner_error(event, exc)
+        return None if settings.fail_closed else result
+    return merge_scan_results(result, semantic_result)
 
 
 def _record_scanner_error(event: dict[str, Any], exc: Exception) -> str:
@@ -709,6 +733,15 @@ def _record_scanner_error(event: dict[str, Any], exc: Exception) -> str:
     event["reason"] = "scanner_failure"
     event["scanner_error"] = error
     event["fail_closed"] = settings.fail_closed
+    return error
+
+
+def _record_semantic_scanner_error(event: dict[str, Any], exc: Exception) -> str:
+    error = exc.__class__.__name__
+    event["semantic_scanner_error"] = error
+    event["fail_closed"] = settings.fail_closed
+    if settings.fail_closed:
+        event["reason"] = "scanner_failure"
     return error
 
 

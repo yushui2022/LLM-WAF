@@ -6,6 +6,7 @@ import app.main as main_module
 from app.access import GatewayAuth, InMemoryRateLimiter
 from app.main import app
 from app.policy import PolicyStore, RoutePolicy
+from app.security.models import Finding, ScanResult
 
 
 class GatewayTests(unittest.TestCase):
@@ -188,6 +189,35 @@ class GatewayTests(unittest.TestCase):
         finally:
             main_module.scanner = original_scanner
             object.__setattr__(main_module.settings, "fail_closed", original_fail_closed)
+
+    def test_semantic_scanner_finding_blocks_input(self):
+        class SemanticScanner:
+            async def scan_input(self, text):
+                return ScanResult(
+                    findings=[
+                        Finding(
+                            rule_id="semantic.prompt_injection",
+                            category="prompt_injection",
+                            severity="high",
+                            action="block",
+                            source="semantic",
+                            evidence="[semantic]",
+                            description="Semantic scanner detected prompt injection.",
+                        )
+                    ]
+                )
+
+        original_semantic_scanner = main_module.semantic_scanner
+        try:
+            main_module.semantic_scanner = SemanticScanner()
+            response = self.client.post(
+                "/v1/chat/completions",
+                json={"model": "test-model", "messages": [{"role": "user", "content": "benign-looking text"}]},
+            )
+            self.assertEqual(response.status_code, 403)
+            self.assertEqual(response.json()["error"]["findings"][0]["source"], "semantic")
+        finally:
+            main_module.semantic_scanner = original_semantic_scanner
 
 
 if __name__ == "__main__":

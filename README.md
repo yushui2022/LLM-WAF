@@ -34,6 +34,7 @@ Most "LLM firewalls" make you rewrite your agent, break SSE streaming, or ship y
 - `/v1/*` passthrough for non-chat routes such as `/v1/models`
 - Route policy YAML for per-route scan / redaction settings and rule disables
 - YAML scanner rule set with Python fallback defaults
+- Optional external semantic scanner hook for model/classifier-based findings
 - Optional gateway API-key authentication
 - Optional in-memory per-principal rate limiting
 - Token usage tracking from provider `usage` fields
@@ -202,6 +203,40 @@ The rule file has three top-level lists:
 
 Each rule supports `rule_id`, `category`, `severity`, `action`, `pattern`, `description`, optional `replacement`, optional `tags`, optional `references`, and optional `recommended_remediation`. If the file is missing or invalid, LLM-WAF falls back to the built-in Python rules so the gateway does not start without protection.
 
+## Semantic scanner hook
+
+The built-in scanner is deterministic and rule-based. It is fast and local, but it is not a semantic classifier. To cover more complex attacks, configure an external scanner:
+
+```env
+SEMANTIC_SCANNER_URL=http://semantic-scanner:9000/scan
+SEMANTIC_SCANNER_TIMEOUT_SECONDS=2.0
+```
+
+LLM-WAF sends:
+
+```json
+{"direction":"input","text":"..."}
+```
+
+The scanner may return:
+
+```json
+{
+  "findings": [
+    {
+      "rule_id": "semantic.prompt_injection",
+      "category": "prompt_injection",
+      "severity": "high",
+      "action": "block",
+      "evidence": "[semantic]",
+      "description": "Semantic scanner detected prompt injection."
+    }
+  ]
+}
+```
+
+Semantic findings are merged with local rule findings and participate in the same `block` / `redact` / audit flow. Keep this hook behind your own trusted service; sending prompt text to a third-party scanner has privacy implications.
+
 ## Try it: blocking
 
 ```bash
@@ -317,6 +352,8 @@ Audit events include:
 | `SCAN_OUTPUTS` | `true` | Scan responses (streaming and non-streaming). |
 | `REDACT_OUTPUTS` | `true` | Redact sensitive content detected in responses. |
 | `STREAM_SCAN_WINDOW_CHARS` | `4096` | Rolling character window used to detect output findings that straddle SSE frames. Set `0` to disable rolling-window stream scanning. |
+| `SEMANTIC_SCANNER_URL` | empty | Optional HTTP scanner endpoint for semantic/model-based findings. Empty disables the hook. |
+| `SEMANTIC_SCANNER_TIMEOUT_SECONDS` | `2.0` | Timeout for the optional semantic scanner. |
 | `BLOCKED_STATUS_CODE` | `403` | HTTP status returned when a request is blocked. |
 | `FAIL_CLOSED` | `false` | If scanner execution fails, block input requests and suppress buffered outputs instead of failing open. Streaming outputs terminate with an SSE error event. |
 | `AUDIT_LOG_PATH` | `var/audit/events.jsonl` | JSONL audit log path. |

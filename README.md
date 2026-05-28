@@ -181,25 +181,103 @@ The request is forwarded with sensitive fields replaced, and a `redacted` event 
 
 ## Architecture
 
-```text
-Client / Agent
-  │
-  ▼
-LLM-WAF /v1/chat/completions
-  │
-  ├─ gateway auth / rate limit (optional)
-  │
-  ├─ input scanner
-  │   ├─ block   (prompt injection / jailbreak)
-  │   └─ redact  (PII / secrets)
-  │
-  ├─► OpenAI-compatible upstream provider
-  │
-  ├─ output scanner
-  │   └─ redact  (PII / secrets / system-prompt leak hints)
-  │
-  ├─ JSONL audit log
-  └─ /dashboard
+A request enters the gateway, is filtered before it reaches the model, and is filtered again on the way back — without breaking SSE streaming.
+
+```mermaid
+%%{init: {'theme':'base','themeVariables':{
+  'background':'#0a0a0b',
+  'primaryColor':'#16161a',
+  'primaryTextColor':'#f5f5f7',
+  'primaryBorderColor':'#2a2a2e',
+  'lineColor':'#6b6b70',
+  'secondaryColor':'#1c1c20',
+  'tertiaryColor':'#101013',
+  'fontFamily':'ui-sans-serif, -apple-system, Segoe UI, sans-serif'
+}}}%%
+flowchart LR
+    A([Client / Agent]) --> G[LLM-WAF Gateway]
+
+    subgraph G [LLM-WAF Gateway]
+      direction TB
+      AUTH[Auth and rate limit<br/><i>optional</i>]
+      IN[Input scanner<br/>block · redact]
+      OUT[Output scanner<br/>redact]
+      LOG[(JSONL audit log)]
+      DASH[/Dashboard/]
+      AUTH --> IN --> OUT
+      OUT --> LOG --> DASH
+    end
+
+    G -->|sanitized request| U[(OpenAI-compatible<br/>upstream provider)]
+    U -->|streamed response| G
+    G --> A
+```
+
+### Request lifecycle
+
+```mermaid
+%%{init: {'theme':'base','themeVariables':{
+  'background':'#0a0a0b',
+  'primaryColor':'#16161a',
+  'primaryTextColor':'#f5f5f7',
+  'primaryBorderColor':'#2a2a2e',
+  'lineColor':'#6b6b70',
+  'actorBkg':'#16161a',
+  'actorTextColor':'#f5f5f7',
+  'actorBorder':'#2a2a2e',
+  'signalColor':'#8a8a90',
+  'signalTextColor':'#c8c8cc',
+  'noteBkgColor':'#1c1c20',
+  'noteTextColor':'#c8c8cc',
+  'noteBorderColor':'#2a2a2e',
+  'fontFamily':'ui-sans-serif, -apple-system, Segoe UI, sans-serif'
+}}}%%
+sequenceDiagram
+    autonumber
+    participant C as Client
+    participant W as LLM-WAF
+    participant P as Provider
+
+    C->>W: POST /v1/chat/completions
+    W->>W: Auth · rate limit
+    W->>W: Input scan (block / redact)
+    alt blocked
+      W-->>C: 403 waf_blocked
+    else allowed
+      W->>P: Forward sanitized request
+      P-->>W: SSE stream
+      loop per SSE frame
+        W->>W: Output scan · redact in place
+        W-->>C: Forward frame
+      end
+      W->>W: Append audit event
+    end
+```
+
+### Decision per request
+
+```mermaid
+%%{init: {'theme':'base','themeVariables':{
+  'background':'#0a0a0b',
+  'primaryColor':'#16161a',
+  'primaryTextColor':'#f5f5f7',
+  'primaryBorderColor':'#2a2a2e',
+  'lineColor':'#6b6b70',
+  'fontFamily':'ui-sans-serif, -apple-system, Segoe UI, sans-serif'
+}}}%%
+flowchart TB
+    R[Request] --> Q1{High-confidence<br/>injection?}
+    Q1 -- yes --> B[block · 403]
+    Q1 -- no --> Q2{PII or secret<br/>detected?}
+    Q2 -- yes --> RD[redact · forward]
+    Q2 -- no --> FW[forward as-is]
+    RD --> RESP[Response]
+    FW --> RESP
+    RESP --> Q3{Sensitive content<br/>in response?}
+    Q3 -- yes --> RO[redact output]
+    Q3 -- no --> PA[passthrough]
+    RO --> AUD[(audit log)]
+    PA --> AUD
 ```
 
 Streaming responses are proxied as Server-Sent Events. Output scanning in streaming mode is chunk-local so first-token latency stays low.

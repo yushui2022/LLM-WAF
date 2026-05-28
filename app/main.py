@@ -23,6 +23,7 @@ from app.access import AuthResult, GatewayAuth, InMemoryRateLimiter, RateLimitRe
 from app.audit import AuditLog
 from app.config import settings
 from app.dashboard import render_dashboard
+from app.policy import PolicyStore, RoutePolicy
 from app.security.payload import (
     extract_request_text,
     extract_response_text,
@@ -52,6 +53,15 @@ scanner = SecurityScanner()
 audit_log = AuditLog(settings.audit_log_path)
 gateway_auth = GatewayAuth(settings.gateway_api_keys, settings.gateway_api_key_header)
 rate_limiter = InMemoryRateLimiter(settings.rate_limit_per_minute)
+policy_store = PolicyStore.load(
+    settings.policy_path,
+    RoutePolicy(
+        redact_inputs=settings.redact_inputs,
+        redact_outputs=settings.redact_outputs,
+        output_scanning=settings.scan_outputs,
+        blocked_status_code=settings.blocked_status_code,
+    ),
+)
 
 
 @app.get("/")
@@ -80,11 +90,12 @@ async def dashboard() -> HTMLResponse:
 async def chat_completions(request: Request) -> Response:
     trace_id = _trace_id()
     started = time.perf_counter()
+    policy = policy_store.for_path(request.url.path)
     auth = gateway_auth.authenticate_headers(request.headers)
     if not auth.allowed:
-        event = _base_event(trace_id, request, started, model="", stream=False, auth=auth)
+        event = _base_event(trace_id, request, started, model="", stream=False, auth=auth, policy=policy)
         event.update({"decision": "blocked", "status_code": 401, "reason": auth.reason})
-        audit_log.append(event)
+        _audit(event, policy)
         return _error_response(
             trace_id,
             401,
@@ -95,9 +106,9 @@ async def chat_completions(request: Request) -> Response:
 
     rate_limit = rate_limiter.check(auth.principal)
     if not rate_limit.allowed:
-        event = _base_event(trace_id, request, started, model="", stream=False, auth=auth, rate_limit=rate_limit)
+        event = _base_event(trace_id, request, started, model="", stream=False, auth=auth, policy=policy, rate_limit=rate_limit)
         event.update({"decision": "blocked", "status_code": 429, "reason": "rate_limited"})
-        audit_log.append(event)
+        _audit(event, policy)
         return _error_response(
             trace_id,
             429,
@@ -109,48 +120,48 @@ async def chat_completions(request: Request) -> Response:
     raw_body = await request.body()
 
     if len(raw_body) > settings.max_body_bytes:
-        event = _base_event(trace_id, request, started, model="", stream=False, auth=auth, rate_limit=rate_limit)
+        event = _base_event(trace_id, request, started, model="", stream=False, auth=auth, policy=policy, rate_limit=rate_limit)
         event.update({"decision": "blocked", "status_code": 413, "reason": "request_too_large"})
-        audit_log.append(event)
+        _audit(event, policy)
         return _error_response(trace_id, 413, "request_too_large", "Request body exceeds MAX_BODY_BYTES.")
 
     try:
         body = json.loads(raw_body)
     except json.JSONDecodeError:
-        event = _base_event(trace_id, request, started, model="", stream=False, auth=auth, rate_limit=rate_limit)
+        event = _base_event(trace_id, request, started, model="", stream=False, auth=auth, policy=policy, rate_limit=rate_limit)
         event.update({"decision": "blocked", "status_code": 400, "reason": "invalid_json"})
-        audit_log.append(event)
+        _audit(event, policy)
         return _error_response(trace_id, 400, "invalid_json", "Invalid JSON request body.")
 
     stream = bool(body.get("stream"))
     model = str(body.get("model", ""))
     request_text = extract_request_text(body)
-    input_scan = scanner.scan_input(request_text)
-    findings = input_scan.to_audit_findings()
+    input_scan = scanner.scan_input(request_text) if policy.input_scanning else None
+    findings = input_scan.to_audit_findings() if input_scan else []
 
-    event = _base_event(trace_id, request, started, model=model, stream=stream, auth=auth, rate_limit=rate_limit)
+    event = _base_event(trace_id, request, started, model=model, stream=stream, auth=auth, policy=policy, rate_limit=rate_limit)
     event["prompt_sha256"] = _sha256(request_text)
 
-    if input_scan.blocked:
+    if input_scan and input_scan.blocked and policy.block_prompt_injection:
         event.update(
             {
                 "decision": "blocked",
-                "status_code": settings.blocked_status_code,
+                "status_code": policy.blocked_status_code,
                 "finding_count": len(findings),
                 "findings": findings,
             }
         )
-        audit_log.append(event)
-        return _blocked_response(trace_id, findings)
+        _audit(event, policy)
+        return _blocked_response(trace_id, findings, policy)
 
     forwarded_body = body
-    input_redacted = bool(input_scan.redacted and settings.redact_inputs)
+    input_redacted = bool(input_scan and input_scan.redacted and policy.redact_inputs)
     if input_redacted:
         forwarded_body = redact_request_body(body, scanner.redact_sensitive)
 
     if stream:
-        return await _proxy_streaming(request, trace_id, started, forwarded_body, event, findings, input_redacted, auth)
-    return await _proxy_buffered(request, trace_id, started, forwarded_body, event, findings, input_redacted, auth)
+        return await _proxy_streaming(request, trace_id, started, forwarded_body, event, findings, input_redacted, auth, policy)
+    return await _proxy_buffered(request, trace_id, started, forwarded_body, event, findings, input_redacted, auth, policy)
 
 
 @app.api_route("/v1/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
@@ -159,11 +170,12 @@ async def passthrough(request: Request, path: str) -> Response:
 
     trace_id = _trace_id()
     started = time.perf_counter()
+    policy = policy_store.for_path(request.url.path)
     auth = gateway_auth.authenticate_headers(request.headers)
     if not auth.allowed:
-        event = _base_event(trace_id, request, started, model="", stream=False, auth=auth)
+        event = _base_event(trace_id, request, started, model="", stream=False, auth=auth, policy=policy)
         event.update({"decision": "blocked", "status_code": 401, "reason": auth.reason})
-        audit_log.append(event)
+        _audit(event, policy)
         return _error_response(
             trace_id,
             401,
@@ -174,9 +186,9 @@ async def passthrough(request: Request, path: str) -> Response:
 
     rate_limit = rate_limiter.check(auth.principal)
     if not rate_limit.allowed:
-        event = _base_event(trace_id, request, started, model="", stream=False, auth=auth, rate_limit=rate_limit)
+        event = _base_event(trace_id, request, started, model="", stream=False, auth=auth, policy=policy, rate_limit=rate_limit)
         event.update({"decision": "blocked", "status_code": 429, "reason": "rate_limited"})
-        audit_log.append(event)
+        _audit(event, policy)
         return _error_response(
             trace_id,
             429,
@@ -199,12 +211,12 @@ async def passthrough(request: Request, path: str) -> Response:
                 content=raw_body or None,
             )
     except httpx.HTTPError as exc:
-        event = _base_event(trace_id, request, started, model="", stream=False, auth=auth, rate_limit=rate_limit)
+        event = _base_event(trace_id, request, started, model="", stream=False, auth=auth, policy=policy, rate_limit=rate_limit)
         event.update({"decision": "error", "status_code": 502, "reason": str(exc)})
-        audit_log.append(event)
+        _audit(event, policy)
         return _error_response(trace_id, 502, "upstream_error", str(exc))
 
-    event = _base_event(trace_id, request, started, model="", stream=False, auth=auth, rate_limit=rate_limit)
+    event = _base_event(trace_id, request, started, model="", stream=False, auth=auth, policy=policy, rate_limit=rate_limit)
     event.update(
         {
             "decision": "allowed",
@@ -215,7 +227,7 @@ async def passthrough(request: Request, path: str) -> Response:
             "findings": [],
         }
     )
-    audit_log.append(event)
+    _audit(event, policy)
     return Response(
         content=upstream.content,
         status_code=upstream.status_code,
@@ -233,6 +245,7 @@ async def _proxy_buffered(
     input_findings: list[dict[str, Any]],
     input_redacted: bool,
     auth: AuthResult,
+    policy: RoutePolicy,
 ) -> Response:
     upstream_url = _upstream_url(request.url.path)
     headers = _forward_headers(request, trace_id, auth)
@@ -251,7 +264,7 @@ async def _proxy_buffered(
                 "latency_ms": _elapsed_ms(started),
             }
         )
-        audit_log.append(event)
+        _audit(event, policy)
         return _error_response(trace_id, 502, "upstream_error", str(exc))
 
     content = upstream.content
@@ -259,13 +272,13 @@ async def _proxy_buffered(
     output_findings: list[dict[str, Any]] = []
     output_redacted = False
 
-    if settings.scan_outputs and _looks_like_json(upstream):
+    if policy.output_scanning and _looks_like_json(upstream):
         try:
             response_body = upstream.json()
             output_text = extract_response_text(response_body)
             output_scan = scanner.scan_output(output_text)
             output_findings = output_scan.to_audit_findings()
-            output_redacted = bool(output_scan.redacted and settings.redact_outputs)
+            output_redacted = bool(output_scan.redacted and policy.redact_outputs)
             if output_redacted:
                 response_body = redact_response_body(response_body, scanner.redact_output)
                 content = json_dumps(response_body).encode("utf-8")
@@ -287,7 +300,7 @@ async def _proxy_buffered(
             "output_redacted": output_redacted,
         }
     )
-    audit_log.append(event)
+    _audit(event, policy)
 
     return Response(
         content=content,
@@ -306,6 +319,7 @@ async def _proxy_streaming(
     input_findings: list[dict[str, Any]],
     input_redacted: bool,
     auth: AuthResult,
+    policy: RoutePolicy,
 ) -> Response:
     upstream_url = _upstream_url(request.url.path)
     headers = _forward_headers(request, trace_id, auth)
@@ -332,7 +346,7 @@ async def _proxy_streaming(
                 "latency_ms": _elapsed_ms(started),
             }
         )
-        audit_log.append(event)
+        _audit(event, policy)
         return _error_response(trace_id, 502, "upstream_error", str(exc))
 
     output_findings: list[dict[str, Any]] = []
@@ -345,19 +359,19 @@ async def _proxy_streaming(
         buffer = ""
         try:
             async for chunk in upstream.aiter_bytes():
-                if not settings.scan_outputs or "text/event-stream" not in content_type:
+                if not policy.output_scanning or "text/event-stream" not in content_type:
                     yield chunk
                     continue
                 buffer += decoder.decode(chunk)
                 while "\n\n" in buffer:
                     frame, buffer = buffer.split("\n\n", 1)
-                    transformed, changed, frame_findings = _transform_sse_frame(frame)
+                    transformed, changed, frame_findings = _transform_sse_frame(frame, redact_outputs=policy.redact_outputs)
                     output_redacted = output_redacted or changed
                     output_findings.extend(frame_findings)
                     yield transformed + "\n\n"
             tail = buffer + decoder.decode(b"", final=True)
             if tail:
-                transformed, changed, frame_findings = _transform_sse_frame(tail)
+                transformed, changed, frame_findings = _transform_sse_frame(tail, redact_outputs=policy.redact_outputs)
                 output_redacted = output_redacted or changed
                 output_findings.extend(frame_findings)
                 yield transformed
@@ -377,7 +391,7 @@ async def _proxy_streaming(
                     "output_redacted": output_redacted,
                 }
             )
-            audit_log.append(event)
+            _audit(event, policy)
 
     return StreamingResponse(
         generate(),
@@ -387,7 +401,7 @@ async def _proxy_streaming(
     )
 
 
-def _transform_sse_frame(frame: str) -> tuple[str, bool, list[dict[str, Any]]]:
+def _transform_sse_frame(frame: str, redact_outputs: bool = True) -> tuple[str, bool, list[dict[str, Any]]]:
     changed = False
     findings: list[dict[str, Any]] = []
     out_lines: list[str] = []
@@ -411,8 +425,10 @@ def _transform_sse_frame(frame: str) -> tuple[str, bool, list[dict[str, Any]]]:
             scan = scanner.scan_output(output_text)
             findings.extend(scan.to_audit_findings(limit=5))
 
-        payload, payload_changed = redact_sse_json_payload(payload, scanner.redact_output)
-        changed = changed or payload_changed
+        payload_changed = False
+        if redact_outputs:
+            payload, payload_changed = redact_sse_json_payload(payload, scanner.redact_output)
+            changed = changed or payload_changed
         out_lines.append("data: " + json_dumps(payload))
 
     return "\n".join(out_lines), changed, findings
@@ -447,12 +463,12 @@ def _looks_like_json(response: httpx.Response) -> bool:
     return "application/json" in response.headers.get("content-type", "")
 
 
-def _blocked_response(trace_id: str, findings: list[dict[str, Any]]) -> JSONResponse:
+def _blocked_response(trace_id: str, findings: list[dict[str, Any]], policy: RoutePolicy) -> JSONResponse:
     top = findings[0] if findings else {}
     message = top.get("description", "Request blocked by LLM-WAF policy.")
     return _error_response(
         trace_id,
-        settings.blocked_status_code,
+        policy.blocked_status_code,
         "waf_blocked",
         str(message),
         extra={"findings": findings},
@@ -487,6 +503,7 @@ def _base_event(
     model: str,
     stream: bool,
     auth: AuthResult,
+    policy: RoutePolicy,
     rate_limit: RateLimitResult | None = None,
 ) -> dict[str, Any]:
     event = {
@@ -499,6 +516,7 @@ def _base_event(
         "client": request.client.host if request.client else "",
         "principal": auth.principal,
         "auth_method": auth.method,
+        "policy": policy.name,
         "latency_ms": _elapsed_ms(started),
     }
     if rate_limit is not None and rate_limit.limit:
@@ -508,6 +526,11 @@ def _base_event(
             "retry_after_seconds": rate_limit.retry_after_seconds,
         }
     return event
+
+
+def _audit(event: dict[str, Any], policy: RoutePolicy) -> None:
+    if policy.audit:
+        audit_log.append(event)
 
 
 def _decision(blocked: bool, redacted: bool) -> str:

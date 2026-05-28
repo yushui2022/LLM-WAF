@@ -29,7 +29,7 @@ input:
     severity: high
     action: block
     pattern: >-
-      \b(you\s+are\s+now.{0,60}(unrestricted|admin|developer|root|jailbroken|hacker|no\s+restrictions?)|pretend\s+(you\s+are|to\s+be).{0,80}(without\s+(any\s+)?(safety|content)\s+filters?|no\s+restrictions?|unrestricted|hacker|criminal)|act\s+as\s+if\s+you\s+(are|were).{0,80}(without\s+(any\s+)?safety|no\s+restrictions?|unrestricted|hacker|criminal)|switch\s+to\s+(developer|admin|god)\s+mode)\b
+      \b(you\s+are\s+now[^\n]{0,60}(unrestricted|admin|developer|root|jailbroken|hacker|no\s+restrictions?)|pretend\s+(you\s+are|to\s+be)[^\n]{0,80}(without\s+(any\s+)?(safety|content)\s+filters?|no\s+restrictions?|unrestricted|hacker|criminal)|act\s+as\s+if\s+you\s+(are|were)[^\n]{0,80}(without\s+(any\s+)?safety|no\s+restrictions?|unrestricted|hacker|criminal)|switch\s+to\s+(developer|admin|god)\s+mode)\b
     description: Attempts to replace the assistant identity or operating mode.
     tags: [en, role_hijack, jailbreak]
     recommended_remediation: Keep role or persona requests inside the allowed application behavior.
@@ -59,7 +59,7 @@ input:
     severity: critical
     action: block
     pattern: >-
-      (忽略|无视|忘记|不要管).{0,12}(之前|上面|以上|所有|原来).{0,12}(指令|规则|要求|设定)
+      (忽略|无视|忘记|不要管)[^\n]{0,12}(之前|上面|以上|所有|原来)[^\n]{0,12}(指令|规则|要求|设定)
     description: 中文指令覆盖攻击。
     tags: [zh, prompt_injection, override]
     recommended_remediation: 移除试图覆盖上级指令或规则的中文提示。
@@ -69,7 +69,7 @@ input:
     severity: critical
     action: block
     pattern: >-
-      (显示|输出|打印|泄露|告诉我|重复).{0,12}(系统提示词|system prompt|初始设定|内部指令|隐藏指令)
+      (显示|输出|打印|泄露|告诉我|重复)[^\n]{0,12}(系统提示词|system prompt|初始设定|内部指令|隐藏指令)
     description: 中文系统提示词探测。
     tags: [zh, system_prompt, extraction]
     recommended_remediation: 不要把系统提示词、初始设定或隐藏指令返回给用户。
@@ -89,7 +89,7 @@ input:
     severity: high
     action: block
     pattern: >-
-      (现在的你是|你现在是|从现在开始你是|角色扮演).{0,20}(不受限制|无视规则|黑客|邪恶|无限制)
+      (现在的你是|你现在是|从现在开始你是|角色扮演)[^\n]{0,20}(不受限制|无视规则|黑客|邪恶|无限制)
     description: 中文角色劫持攻击。
     tags: [zh, role_hijack, jailbreak]
     recommended_remediation: 将角色扮演限制在可信系统提示和应用允许的范围内。
@@ -99,7 +99,7 @@ input:
     severity: critical
     action: block
     pattern: >-
-      (原样|完整|逐字|一字不漏|全部).{0,12}(复述|输出|打印|展示|告诉我).{0,20}(最开始|一开始|后台|内部|隐藏|原始).{0,12}(规则|设定|提示|指令)
+      (原样|完整|逐字|一字不漏|全部)[^\n]{0,12}(复述|输出|打印|展示|告诉我)[^\n]{0,20}(最开始|一开始|后台|内部|隐藏|原始)[^\n]{0,12}(规则|设定|提示|指令)
     description: 中文隐藏规则或初始指令提取。
     tags: [zh, system_prompt, extraction]
     recommended_remediation: 阻止用户要求原样复述后台规则、初始设定或隐藏指令。
@@ -109,7 +109,7 @@ input:
     severity: critical
     action: block
     pattern: >-
-      (从现在开始|接下来|以后).{0,12}(只听我|只服从我|只服从用户|不要听系统|别听系统|无视系统)
+      (从现在开始|接下来|以后)[^\n]{0,12}(只听我|只服从我|只服从用户|不要听系统|别听系统|无视系统)
     description: 中文要求模型忽略系统约束并只服从用户。
     tags: [zh, prompt_injection, override]
     recommended_remediation: 阻止要求模型改写信任边界或只服从用户的指令。
@@ -119,7 +119,7 @@ input:
     severity: high
     action: block
     pattern: >-
-      (关闭|禁用|绕开|跳过).{0,12}(安全策略|安全规则|内容审查|风控|合规限制|审核机制)
+      (关闭|禁用|绕开|跳过)[^\n]{0,12}(安全策略|安全规则|内容审查|风控|合规限制|审核机制)
     description: 中文安全策略或审核机制绕过。
     tags: [zh, jailbreak, bypass]
     recommended_remediation: 阻止关闭、禁用或绕过安全策略和审核机制的请求。
@@ -129,7 +129,7 @@ input:
     severity: critical
     action: block
     pattern: >-
-      (忽略|無視|忘記|不要管).{0,12}(之前|上面|以上|所有|原來).{0,12}(指令|規則|要求|設定)
+      (忽略|無視|忘記|不要管)[^\n]{0,12}(之前|上面|以上|所有|原來)[^\n]{0,12}(指令|規則|要求|設定)
     description: 繁体中文指令覆盖攻击。
     tags: [zh, hant, prompt_injection, override]
     recommended_remediation: 阻止繁体中文中试图覆盖上级指令或规则的提示。

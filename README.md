@@ -357,6 +357,7 @@ Audit events include:
 | `REDACT_INPUTS` | `true` | Redact PII / secrets before forwarding. |
 | `SCAN_OUTPUTS` | `true` | Scan responses (streaming and non-streaming). |
 | `REDACT_OUTPUTS` | `true` | Redact sensitive content detected in responses. |
+| `SCANNER_RULE_TIMEOUT_MS` | `50` | Advisory wall-clock budget per regex call. On timeout, a `scanner.timeout` finding is recorded and the scanner moves to the next rule. See `docs/rule-quality.md` for the CPython-GIL caveat. Set `0` to disable. |
 | `STREAM_SCAN_WINDOW_CHARS` | `4096` | Rolling character window used to detect output findings that straddle SSE frames. Set `0` to disable rolling-window stream scanning. |
 | `STREAM_HOLD_BACK_FRAMES` | `0` | Optional SSE frame hold-back. When greater than `0`, the gateway delays that many frames and can redact held fragments if a later frame completes a cross-frame finding. |
 | `SEMANTIC_SCANNER_URL` | empty | Optional HTTP scanner endpoint for semantic/model-based findings. Empty disables the hook. |

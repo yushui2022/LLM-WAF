@@ -34,7 +34,26 @@ Required local checks:
 python -B -m unittest discover -s tests
 python -B scripts/evaluate.py --direction input --min-precision 0.95 --min-recall 0.95 --min-category-recall 0.95
 python -B scripts/evaluate.py --direction output --min-precision 0.95 --min-recall 0.95 --min-category-recall 0.95
+python -B scripts/redos_probe.py
 ```
+
+## ReDoS Hardening
+
+Scanner rules run regex against user-controlled input. Catastrophic backtracking on a pathological pattern can pin a worker thread. We defend against this in two layers:
+
+1. **Pattern hygiene (primary defense).** Built-in rules use `[^\n]{0,N}` instead of `.{0,N}` between alternations, and `re.DOTALL` is enabled only for an explicit allowlist (`_DOTALL_RULE_IDS` in `app/security/rules.py`: `secret.private_key`, `out.system_prompt_leak.*`). This eliminates the most common nested-quantifier ReDoS shapes on multi-line inputs.
+2. **Per-rule wall-clock timeout (secondary defense).** `SCANNER_RULE_TIMEOUT_MS` (default `50`) bounds each regex call. On timeout, the scanner emits a `scanner.timeout` finding (`category=scanner_error`, `severity=low`, `action=log_only`) and proceeds with remaining rules.
+
+**Important caveat:** CPython does not release the GIL inside `re` for short inputs, so a runaway regex on a small adversarial string can still occupy a worker for the full backtracking duration regardless of the configured timeout. The timeout is advisory and serves as a structural seam where a future migration to `regex` (with its native `timeout` argument) or `google/re2` can plug in. **Do not rely on the timeout to make a sloppy pattern safe — keep patterns tight.**
+
+When you add or relax a pattern, run the probe script:
+
+```bash
+python -B scripts/redos_probe.py            # default 100ms budget, filler=2000
+python -B scripts/redos_probe.py --max-ms 50 --filler 5000   # stricter
+```
+
+Every rule × adversarial input pair must finish within the budget.
 
 ## False Positive Reports
 

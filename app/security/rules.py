@@ -15,6 +15,19 @@ from typing import Any
 import yaml
 
 
+# Rules that legitimately need `.` to match newlines (multi-line payloads).
+# Everything else compiles WITHOUT re.DOTALL so `.` is implicitly `[^\n]`,
+# which removes a large class of pathological backtracking on user input
+# containing newlines.
+_DOTALL_RULE_IDS: frozenset[str] = frozenset(
+    {
+        "secret.private_key",
+        "out.system_prompt_leak.en",
+        "out.system_prompt_leak.zh",
+    }
+)
+
+
 @dataclass(frozen=True)
 class Rule:
     rule_id: str
@@ -28,9 +41,16 @@ class Rule:
     references: tuple[str, ...] = ()
     recommended_remediation: str = ""
 
+    def __post_init__(self) -> None:
+        flags = re.IGNORECASE
+        if self.rule_id in _DOTALL_RULE_IDS:
+            flags |= re.DOTALL
+        compiled = re.compile(self.pattern, flags)
+        object.__setattr__(self, "_compiled", compiled)
+
     @property
     def regex(self) -> re.Pattern[str]:
-        return re.compile(self.pattern, re.IGNORECASE | re.DOTALL)
+        return self._compiled  # type: ignore[attr-defined]
 
     @property
     def effective_tags(self) -> tuple[str, ...]:
@@ -61,7 +81,7 @@ FALLBACK_INPUT_RULES: tuple[Rule, ...] = (
         "role_hijack",
         "high",
         "block",
-        r"\b(you\s+are\s+now.{0,60}(unrestricted|admin|developer|root|jailbroken|hacker|no\s+restrictions?)|pretend\s+(you\s+are|to\s+be).{0,80}(without\s+(any\s+)?(safety|content)\s+filters?|no\s+restrictions?|unrestricted|hacker|criminal)|act\s+as\s+if\s+you\s+(are|were).{0,80}(without\s+(any\s+)?safety|no\s+restrictions?|unrestricted|hacker|criminal)|switch\s+to\s+(developer|admin|god)\s+mode)\b",
+        r"\b(you\s+are\s+now[^\n]{0,60}(unrestricted|admin|developer|root|jailbroken|hacker|no\s+restrictions?)|pretend\s+(you\s+are|to\s+be)[^\n]{0,80}(without\s+(any\s+)?(safety|content)\s+filters?|no\s+restrictions?|unrestricted|hacker|criminal)|act\s+as\s+if\s+you\s+(are|were)[^\n]{0,80}(without\s+(any\s+)?safety|no\s+restrictions?|unrestricted|hacker|criminal)|switch\s+to\s+(developer|admin|god)\s+mode)\b",
         "Attempts to replace the assistant identity or operating mode.",
     ),
     Rule(
@@ -85,7 +105,7 @@ FALLBACK_INPUT_RULES: tuple[Rule, ...] = (
         "prompt_injection",
         "critical",
         "block",
-        r"(忽略|无视|忘记|不要管).{0,12}(之前|上面|以上|所有|原来).{0,12}(指令|规则|要求|设定)",
+        r"(忽略|无视|忘记|不要管)[^\n]{0,12}(之前|上面|以上|所有|原来)[^\n]{0,12}(指令|规则|要求|设定)",
         "中文指令覆盖攻击。",
     ),
     Rule(
@@ -93,7 +113,7 @@ FALLBACK_INPUT_RULES: tuple[Rule, ...] = (
         "system_prompt_extraction",
         "critical",
         "block",
-        r"(显示|输出|打印|泄露|告诉我|重复).{0,12}(系统提示词|system prompt|初始设定|内部指令|隐藏指令)",
+        r"(显示|输出|打印|泄露|告诉我|重复)[^\n]{0,12}(系统提示词|system prompt|初始设定|内部指令|隐藏指令)",
         "中文系统提示词探测。",
     ),
     Rule(
@@ -109,7 +129,7 @@ FALLBACK_INPUT_RULES: tuple[Rule, ...] = (
         "role_hijack",
         "high",
         "block",
-        r"(现在的你是|你现在是|从现在开始你是|角色扮演).{0,20}(不受限制|无视规则|黑客|邪恶|无限制)",
+        r"(现在的你是|你现在是|从现在开始你是|角色扮演)[^\n]{0,20}(不受限制|无视规则|黑客|邪恶|无限制)",
         "中文角色劫持攻击。",
     ),
     Rule(
@@ -117,7 +137,7 @@ FALLBACK_INPUT_RULES: tuple[Rule, ...] = (
         "system_prompt_extraction",
         "critical",
         "block",
-        r"(原样|完整|逐字|一字不漏|全部).{0,12}(复述|输出|打印|展示|告诉我).{0,20}(最开始|一开始|后台|内部|隐藏|原始).{0,12}(规则|设定|提示|指令)",
+        r"(原样|完整|逐字|一字不漏|全部)[^\n]{0,12}(复述|输出|打印|展示|告诉我)[^\n]{0,20}(最开始|一开始|后台|内部|隐藏|原始)[^\n]{0,12}(规则|设定|提示|指令)",
         "中文隐藏规则或初始指令提取。",
     ),
     Rule(
@@ -125,7 +145,7 @@ FALLBACK_INPUT_RULES: tuple[Rule, ...] = (
         "prompt_injection",
         "critical",
         "block",
-        r"(从现在开始|接下来|以后).{0,12}(只听我|只服从我|只服从用户|不要听系统|别听系统|无视系统)",
+        r"(从现在开始|接下来|以后)[^\n]{0,12}(只听我|只服从我|只服从用户|不要听系统|别听系统|无视系统)",
         "中文要求模型忽略系统约束并只服从用户。",
     ),
     Rule(
@@ -133,7 +153,7 @@ FALLBACK_INPUT_RULES: tuple[Rule, ...] = (
         "jailbreak",
         "high",
         "block",
-        r"(关闭|禁用|绕开|跳过).{0,12}(安全策略|安全规则|内容审查|风控|合规限制|审核机制)",
+        r"(关闭|禁用|绕开|跳过)[^\n]{0,12}(安全策略|安全规则|内容审查|风控|合规限制|审核机制)",
         "中文安全策略或审核机制绕过。",
     ),
     Rule(
@@ -141,7 +161,7 @@ FALLBACK_INPUT_RULES: tuple[Rule, ...] = (
         "prompt_injection",
         "critical",
         "block",
-        r"(忽略|無視|忘記|不要管).{0,12}(之前|上面|以上|所有|原來).{0,12}(指令|規則|要求|設定)",
+        r"(忽略|無視|忘記|不要管)[^\n]{0,12}(之前|上面|以上|所有|原來)[^\n]{0,12}(指令|規則|要求|設定)",
         "繁体中文指令覆盖攻击。",
     ),
 )
@@ -312,21 +332,19 @@ def _load_rule(raw: Any) -> Rule | None:
     if replacement is not None and not isinstance(replacement, str):
         return None
 
-    rule = Rule(
-        rule_id=values["rule_id"],
-        category=values["category"],
-        severity=values["severity"],
-        action=values["action"],
-        pattern=values["pattern"],
-        description=values["description"],
-        replacement=replacement,
-        tags=_coerce_str_tuple(raw.get("tags")),
-        references=_coerce_str_tuple(raw.get("references")),
-        recommended_remediation=str(raw.get("recommended_remediation", "")).strip(),
-    )
-
     try:
-        rule.regex
+        rule = Rule(
+            rule_id=values["rule_id"],
+            category=values["category"],
+            severity=values["severity"],
+            action=values["action"],
+            pattern=values["pattern"],
+            description=values["description"],
+            replacement=replacement,
+            tags=_coerce_str_tuple(raw.get("tags")),
+            references=_coerce_str_tuple(raw.get("references")),
+            recommended_remediation=str(raw.get("recommended_remediation", "")).strip(),
+        )
     except re.error:
         return None
     return rule

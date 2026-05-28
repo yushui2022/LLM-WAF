@@ -44,13 +44,14 @@ Implemented:
 - Route policy YAML.
 - Token usage extraction.
 - Optional model pricing estimates.
-- WAF scanner evaluation harness.
+- Input and output WAF scanner evaluation harnesses.
 
 Validation commands:
 
 ```bash
 python -m unittest discover -s tests
-python scripts/evaluate.py --show-misses --min-precision 0.95 --min-recall 0.95
+python scripts/evaluate.py --direction input --show-misses --min-precision 0.95 --min-recall 0.95
+python scripts/evaluate.py --direction output --show-misses --min-precision 0.95 --min-recall 0.95
 ```
 
 ## Guiding Engineering Rules
@@ -78,7 +79,7 @@ Tasks:
   - HTML entities
   - zero-width characters
   - mixed Chinese/English text
-- Add output-side eval set for leakage detection.
+- Add output-side eval set for leakage detection. (done)
 - Add CI workflow for unit tests and scanner eval.
 - Document false-positive reporting format.
 
@@ -122,8 +123,8 @@ Goal: prevent model responses from leaking secrets, PII, system prompts, and too
 
 Tasks:
 
-- Create `tests/output_eval_set.jsonl`.
-- Add output eval script support or extend `scripts/evaluate.py` with `--direction input|output`.
+- Create `tests/output_eval_set.jsonl`. (done)
+- Add output eval script support or extend `scripts/evaluate.py` with `--direction input|output`. (done)
 - Improve system prompt leak heuristics.
 - Add private key, token, credential, and stack trace output detectors.
 - Add configurable output action:
@@ -231,10 +232,8 @@ Potential future work:
 Start here:
 
 1. Add more Chinese and mixed-language eval samples.
-2. Add output scanner eval set and direction-aware evaluation.
-3. Move built-in scanner rules toward configurable rule metadata.
-4. Improve audit finding schema and dashboard finding views.
-5. Add tool-call argument scanning and policy.
+2. Move built-in scanner rules toward configurable rule metadata.
+3. Improve audit finding schema and dashboard finding views.
+4. Add tool-call argument scanning and policy.
 
-The next implementation task should be **output-side eval set and evaluation support**, unless a blocking bug appears first.
-
+The next implementation task should be **more Chinese and mixed-language eval samples**, unless a blocking bug appears first.

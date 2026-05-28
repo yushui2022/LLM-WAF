@@ -36,6 +36,7 @@ Most "LLM firewalls" make you rewrite your agent, break SSE streaming, or ship y
 - Optional in-memory per-principal rate limiting
 - Token usage tracking from provider `usage` fields
 - Configurable model pricing table for estimated spend
+- Input and output WAF scanner evaluation harnesses
 - JSONL audit log
 - Built-in `/dashboard`
 - Docker Compose one-command startup
@@ -402,20 +403,21 @@ Run the tests:
 python -m unittest discover -s tests
 ```
 
-Run the WAF scanner evaluation set:
+Run the WAF scanner evaluation sets:
 
 ```bash
-python scripts/evaluate.py --show-misses --min-precision 0.95 --min-recall 0.95
+python scripts/evaluate.py --direction input --show-misses --min-precision 0.95 --min-recall 0.95
+python scripts/evaluate.py --direction output --show-misses --min-precision 0.95 --min-recall 0.95
 ```
 
-The default eval set lives at `tests/eval_set.jsonl`. Add both malicious samples and benign hard negatives when changing rules; the goal is to improve recall without quietly increasing false positives.
+The default input eval set lives at `tests/eval_set.jsonl`; the default output eval set lives at `tests/output_eval_set.jsonl`. Add both malicious samples and benign hard negatives when changing rules; the goal is to improve recall without quietly increasing false positives.
 
 ## Contributing
 
 Issues and PRs welcome — especially:
 
 - New Chinese / multilingual prompt-injection rules (`app/security/rules.py`)
-- Benign hard negatives and attack samples (`tests/eval_set.jsonl`)
+- Benign hard negatives and attack samples (`tests/eval_set.jsonl`, `tests/output_eval_set.jsonl`)
 - Useful default route policies (`config/policy.yaml`)
 - Additional PII / secret detectors
 - Real-world bypass reports against the current rule set

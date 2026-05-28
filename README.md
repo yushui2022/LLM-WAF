@@ -31,6 +31,7 @@ Most "LLM firewalls" make you rewrite your agent, break SSE streaming, or ship y
 - **Input redaction** for email, Chinese mobile, Chinese ID, common API keys, generic secret assignments, GitHub tokens, AWS access keys, and private keys
 - **Output redaction** for secrets / PII and simple system-prompt leak hints
 - `/v1/*` passthrough for non-chat routes such as `/v1/models`
+- Route policy YAML for per-route scan / redaction settings
 - Optional gateway API-key authentication
 - Optional in-memory per-principal rate limiting
 - JSONL audit log
@@ -117,6 +118,51 @@ curl http://localhost:8080/v1/chat/completions \
 
 If `GATEWAY_API_KEYS` is enabled, LLM-WAF accepts either `X-LLM-WAF-Key: <key>` or `Authorization: Bearer <key>`. Prefer `X-LLM-WAF-Key` when you also forward user-supplied provider credentials.
 
+## Route policy
+
+The gateway loads `config/policy.yaml` by default. Policies let you keep strict protection on chat completions while relaxing metadata routes such as `/v1/models`.
+
+```yaml
+default:
+  input_scanning: true
+  output_scanning: true
+  redact_inputs: true
+  redact_outputs: true
+  block_prompt_injection: true
+  audit: true
+  blocked_status_code: 403
+
+routes:
+  - name: chat_completions
+    path: /v1/chat/completions
+    input_scanning: true
+    output_scanning: true
+
+  - name: metadata_passthrough
+    path: /v1/models
+    input_scanning: false
+    output_scanning: false
+```
+
+Supported route fields:
+
+| Field | Meaning |
+|---|---|
+| `path` | Exact path, or prefix pattern ending in `*`, for example `/v1/admin/*`. |
+| `input_scanning` | Run input prompt-injection and PII/secret detection. |
+| `output_scanning` | Run response scanning. |
+| `redact_inputs` | Replace detected PII/secrets before forwarding upstream. |
+| `redact_outputs` | Replace detected PII/secrets/system-prompt leak hints in responses. |
+| `block_prompt_injection` | Block high-confidence prompt-injection findings. |
+| `audit` | Write JSONL audit events for the route. |
+| `blocked_status_code` | HTTP status for WAF-blocked requests on the route. |
+
+To use another policy file:
+
+```env
+POLICY_PATH=/etc/llm-waf/policy.yaml
+```
+
 ## Try it: blocking
 
 ```bash
@@ -171,6 +217,7 @@ The request is forwarded with sensitive fields replaced, and a `redacted` event 
 | `GATEWAY_API_KEYS` | empty | Comma-separated gateway keys. Empty disables gateway authentication. |
 | `GATEWAY_API_KEY_HEADER` | `X-LLM-WAF-Key` | Header used for gateway authentication. |
 | `RATE_LIMIT_PER_MINUTE` | `0` | In-memory per-principal limit. `0` disables rate limiting. |
+| `POLICY_PATH` | `config/policy.yaml` | YAML route policy file. Missing file falls back to env/default settings. |
 | `REDACT_INPUTS` | `true` | Redact PII / secrets before forwarding. |
 | `SCAN_OUTPUTS` | `true` | Scan responses (streaming and non-streaming). |
 | `REDACT_OUTPUTS` | `true` | Redact sensitive content detected in responses. |
@@ -200,11 +247,12 @@ flowchart LR
     subgraph G [LLM-WAF Gateway]
       direction TB
       AUTH[Auth and rate limit<br/><i>optional</i>]
+      POL[Route policy]
       IN[Input scanner<br/>block · redact]
       OUT[Output scanner<br/>redact]
       LOG[(JSONL audit log)]
       DASH[/Dashboard/]
-      AUTH --> IN --> OUT
+      AUTH --> POL --> IN --> OUT
       OUT --> LOG --> DASH
     end
 
@@ -240,6 +288,7 @@ sequenceDiagram
 
     C->>W: POST /v1/chat/completions
     W->>W: Auth · rate limit
+    W->>W: Match route policy
     W->>W: Input scan (block / redact)
     alt blocked
       W-->>C: 403 waf_blocked
@@ -267,7 +316,7 @@ sequenceDiagram
 }}}%%
 flowchart TB
     R[Request] --> Q1{High-confidence<br/>injection?}
-    Q1 -- yes --> B[block · 403]
+    Q1 -- yes --> B[block · policy status]
     Q1 -- no --> Q2{PII or secret<br/>detected?}
     Q2 -- yes --> RD[redact · forward]
     Q2 -- no --> FW[forward as-is]
@@ -302,7 +351,8 @@ python -m unittest discover -s tests
 
 Issues and PRs welcome — especially:
 
-- New Chinese / multilingual prompt-injection rules (`rules/`)
+- New Chinese / multilingual prompt-injection rules (`app/security/rules.py`)
+- Useful default route policies (`config/policy.yaml`)
 - Additional PII / secret detectors
 - Real-world bypass reports against the current rule set
 - Provider compatibility fixes

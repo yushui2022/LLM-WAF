@@ -4,7 +4,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="License: Apache 2.0"/>
-  <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+"/>
+  <img src="https://img.shields.io/badge/python-3.11%2B-blue" alt="Python 3.11+"/>
   <img src="https://img.shields.io/badge/status-MVP-orange" alt="Status: MVP"/>
   <img src="https://img.shields.io/badge/streaming-supported-brightgreen" alt="Streaming supported"/>
 </p>
@@ -31,6 +31,8 @@ Most "LLM firewalls" make you rewrite your agent, break SSE streaming, or ship y
 - **Input redaction** for email, Chinese mobile, Chinese ID, common API keys, generic secret assignments, GitHub tokens, AWS access keys, and private keys
 - **Output redaction** for secrets / PII and simple system-prompt leak hints
 - `/v1/*` passthrough for non-chat routes such as `/v1/models`
+- Optional gateway API-key authentication
+- Optional in-memory per-principal rate limiting
 - JSONL audit log
 - Built-in `/dashboard`
 - Docker Compose one-command startup
@@ -40,7 +42,7 @@ Most "LLM firewalls" make you rewrite your agent, break SSE streaming, or ship y
 Being upfront so you know what you're getting:
 
 - Streaming output scanning is **chunk-local** — patterns that straddle multiple SSE frames may not be caught.
-- No rate limiting or per-key API-key management yet — put a reverse proxy in front if you need it.
+- Rate limiting is in-memory only in the MVP; use Redis or a reverse proxy for multi-replica deployments.
 - Anthropic / Gemini **native** protocols are not supported (use their OpenAI-compatible endpoints).
 - Chinese prompt-injection rule set is intentionally small in v0.1; community PRs welcome.
 - `FAIL_CLOSED` is configurable but currently a no-op placeholder for scanner-backend failure handling in a future release.
@@ -94,6 +96,27 @@ for chunk in response:
 
 If `UPSTREAM_API_KEY` is set on the gateway, LLM-WAF overwrites the upstream `Authorization` header. If empty, the client's original `Authorization` is forwarded.
 
+## Optional gateway API keys
+
+By default the MVP is open on the port where you run it. For a shared dev box or public endpoint, configure gateway keys:
+
+```env
+GATEWAY_API_KEYS=dev-key-1,dev-key-2
+GATEWAY_API_KEY_HEADER=X-LLM-WAF-Key
+RATE_LIMIT_PER_MINUTE=60
+```
+
+Then send a gateway key with each request:
+
+```bash
+curl http://localhost:8080/v1/chat/completions \
+  -H "content-type: application/json" \
+  -H "X-LLM-WAF-Key: dev-key-1" \
+  -d '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hello"}]}'
+```
+
+If `GATEWAY_API_KEYS` is enabled, LLM-WAF accepts either `X-LLM-WAF-Key: <key>` or `Authorization: Bearer <key>`. Prefer `X-LLM-WAF-Key` when you also forward user-supplied provider credentials.
+
 ## Try it: blocking
 
 ```bash
@@ -145,6 +168,9 @@ The request is forwarded with sensitive fields replaced, and a `redacted` event 
 | `UPSTREAM_API_KEY` | empty | Upstream provider key. If empty, the client's `Authorization` header is forwarded. |
 | `LLM_WAF_PORT` | `8080` | Gateway port. |
 | `MAX_BODY_BYTES` | `2000000` | Maximum request body size. |
+| `GATEWAY_API_KEYS` | empty | Comma-separated gateway keys. Empty disables gateway authentication. |
+| `GATEWAY_API_KEY_HEADER` | `X-LLM-WAF-Key` | Header used for gateway authentication. |
+| `RATE_LIMIT_PER_MINUTE` | `0` | In-memory per-principal limit. `0` disables rate limiting. |
 | `REDACT_INPUTS` | `true` | Redact PII / secrets before forwarding. |
 | `SCAN_OUTPUTS` | `true` | Scan responses (streaming and non-streaming). |
 | `REDACT_OUTPUTS` | `true` | Redact sensitive content detected in responses. |
@@ -160,6 +186,8 @@ Client / Agent
   │
   ▼
 LLM-WAF /v1/chat/completions
+  │
+  ├─ gateway auth / rate limit (optional)
   │
   ├─ input scanner
   │   ├─ block   (prompt injection / jailbreak)

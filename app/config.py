@@ -41,6 +41,11 @@ def _env_float(name: str, default: float) -> float:
         return default
 
 
+def _env_csv(name: str) -> tuple[str, ...]:
+    value = os.getenv(name, "")
+    return tuple(item.strip() for item in value.split(",") if item.strip())
+
+
 @dataclass(frozen=True)
 class Settings:
     service_name: str = os.getenv("LLM_WAF_SERVICE_NAME", "LLM-WAF")
@@ -54,6 +59,9 @@ class Settings:
     upstream_timeout_seconds: float = _env_float("UPSTREAM_TIMEOUT_SECONDS", 90.0)
 
     max_body_bytes: int = _env_int("MAX_BODY_BYTES", 2_000_000)
+    gateway_api_keys: tuple[str, ...] = _env_csv("GATEWAY_API_KEYS")
+    gateway_api_key_header: str = os.getenv("GATEWAY_API_KEY_HEADER", "X-LLM-WAF-Key")
+    rate_limit_per_minute: int = _env_int("RATE_LIMIT_PER_MINUTE", 0)
     fail_closed: bool = _env_bool("FAIL_CLOSED", False)
     redact_inputs: bool = _env_bool("REDACT_INPUTS", True)
     redact_outputs: bool = _env_bool("REDACT_OUTPUTS", True)
@@ -68,4 +76,3 @@ class Settings:
 
 
 settings = Settings()
-

@@ -15,7 +15,7 @@ def render_dashboard(events: list[dict[str, Any]]) -> str:
 
     rows = "\n".join(_render_row(event) for event in recent)
     if not rows:
-        rows = '<tr><td colspan="8" class="empty">No requests yet. Send traffic through /v1/chat/completions.</td></tr>'
+        rows = '<tr><td colspan="9" class="empty">No requests yet. Send traffic through /v1/chat/completions.</td></tr>'
 
     return f"""<!doctype html>
 <html lang="en">
@@ -73,6 +73,7 @@ def render_dashboard(events: list[dict[str, Any]]) -> str:
           <th>Time</th>
           <th>Decision</th>
           <th>Model</th>
+          <th>Principal</th>
           <th>Stream</th>
           <th>Status</th>
           <th>Latency</th>
@@ -96,6 +97,7 @@ def _render_row(event: dict[str, Any]) -> str:
     status = escape(str(event.get("upstream_status", event.get("status_code", ""))))
     trace_id = escape(str(event.get("trace_id", "")))
     model = escape(str(event.get("model", "")))
+    principal = escape(str(event.get("principal", "anonymous")))
     stream = "yes" if event.get("stream") else "no"
     latency = event.get("latency_ms")
     latency_text = "" if latency is None else f"{latency} ms"
@@ -111,10 +113,10 @@ def _render_row(event: dict[str, Any]) -> str:
       <td>{escape(str(event.get("ts", "")))}</td>
       <td><span class="pill {decision}">{decision}</span></td>
       <td>{model}</td>
+      <td><code>{principal}</code></td>
       <td>{stream}</td>
       <td>{status}</td>
       <td>{escape(latency_text)}</td>
       <td><code>{trace_id[:12]}</code></td>
       <td class="findings">{finding_text}</td>
     </tr>"""
-

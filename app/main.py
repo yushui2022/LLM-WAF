@@ -19,6 +19,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 
+from app.access import AuthResult, GatewayAuth, InMemoryRateLimiter, RateLimitResult
 from app.audit import AuditLog
 from app.config import settings
 from app.dashboard import render_dashboard
@@ -49,6 +50,8 @@ if settings.enable_cors:
 
 scanner = SecurityScanner()
 audit_log = AuditLog(settings.audit_log_path)
+gateway_auth = GatewayAuth(settings.gateway_api_keys, settings.gateway_api_key_header)
+rate_limiter = InMemoryRateLimiter(settings.rate_limit_per_minute)
 
 
 @app.get("/")
@@ -77,10 +80,36 @@ async def dashboard() -> HTMLResponse:
 async def chat_completions(request: Request) -> Response:
     trace_id = _trace_id()
     started = time.perf_counter()
+    auth = gateway_auth.authenticate_headers(request.headers)
+    if not auth.allowed:
+        event = _base_event(trace_id, request, started, model="", stream=False, auth=auth)
+        event.update({"decision": "blocked", "status_code": 401, "reason": auth.reason})
+        audit_log.append(event)
+        return _error_response(
+            trace_id,
+            401,
+            "unauthorized",
+            "Missing or invalid gateway API key.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    rate_limit = rate_limiter.check(auth.principal)
+    if not rate_limit.allowed:
+        event = _base_event(trace_id, request, started, model="", stream=False, auth=auth, rate_limit=rate_limit)
+        event.update({"decision": "blocked", "status_code": 429, "reason": "rate_limited"})
+        audit_log.append(event)
+        return _error_response(
+            trace_id,
+            429,
+            "rate_limited",
+            "Gateway rate limit exceeded.",
+            headers={"Retry-After": str(rate_limit.retry_after_seconds)},
+        )
+
     raw_body = await request.body()
 
     if len(raw_body) > settings.max_body_bytes:
-        event = _base_event(trace_id, request, started, model="", stream=False)
+        event = _base_event(trace_id, request, started, model="", stream=False, auth=auth, rate_limit=rate_limit)
         event.update({"decision": "blocked", "status_code": 413, "reason": "request_too_large"})
         audit_log.append(event)
         return _error_response(trace_id, 413, "request_too_large", "Request body exceeds MAX_BODY_BYTES.")
@@ -88,7 +117,7 @@ async def chat_completions(request: Request) -> Response:
     try:
         body = json.loads(raw_body)
     except json.JSONDecodeError:
-        event = _base_event(trace_id, request, started, model="", stream=False)
+        event = _base_event(trace_id, request, started, model="", stream=False, auth=auth, rate_limit=rate_limit)
         event.update({"decision": "blocked", "status_code": 400, "reason": "invalid_json"})
         audit_log.append(event)
         return _error_response(trace_id, 400, "invalid_json", "Invalid JSON request body.")
@@ -99,7 +128,7 @@ async def chat_completions(request: Request) -> Response:
     input_scan = scanner.scan_input(request_text)
     findings = input_scan.to_audit_findings()
 
-    event = _base_event(trace_id, request, started, model=model, stream=stream)
+    event = _base_event(trace_id, request, started, model=model, stream=stream, auth=auth, rate_limit=rate_limit)
     event["prompt_sha256"] = _sha256(request_text)
 
     if input_scan.blocked:
@@ -120,8 +149,8 @@ async def chat_completions(request: Request) -> Response:
         forwarded_body = redact_request_body(body, scanner.redact_sensitive)
 
     if stream:
-        return await _proxy_streaming(request, trace_id, started, forwarded_body, event, findings, input_redacted)
-    return await _proxy_buffered(request, trace_id, started, forwarded_body, event, findings, input_redacted)
+        return await _proxy_streaming(request, trace_id, started, forwarded_body, event, findings, input_redacted, auth)
+    return await _proxy_buffered(request, trace_id, started, forwarded_body, event, findings, input_redacted, auth)
 
 
 @app.api_route("/v1/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
@@ -130,9 +159,35 @@ async def passthrough(request: Request, path: str) -> Response:
 
     trace_id = _trace_id()
     started = time.perf_counter()
+    auth = gateway_auth.authenticate_headers(request.headers)
+    if not auth.allowed:
+        event = _base_event(trace_id, request, started, model="", stream=False, auth=auth)
+        event.update({"decision": "blocked", "status_code": 401, "reason": auth.reason})
+        audit_log.append(event)
+        return _error_response(
+            trace_id,
+            401,
+            "unauthorized",
+            "Missing or invalid gateway API key.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    rate_limit = rate_limiter.check(auth.principal)
+    if not rate_limit.allowed:
+        event = _base_event(trace_id, request, started, model="", stream=False, auth=auth, rate_limit=rate_limit)
+        event.update({"decision": "blocked", "status_code": 429, "reason": "rate_limited"})
+        audit_log.append(event)
+        return _error_response(
+            trace_id,
+            429,
+            "rate_limited",
+            "Gateway rate limit exceeded.",
+            headers={"Retry-After": str(rate_limit.retry_after_seconds)},
+        )
+
     raw_body = await request.body()
     upstream_url = _upstream_url(request.url.path)
-    headers = _forward_headers(request, trace_id)
+    headers = _forward_headers(request, trace_id, auth)
 
     try:
         async with httpx.AsyncClient(timeout=settings.upstream_timeout_seconds) as client:
@@ -144,12 +199,12 @@ async def passthrough(request: Request, path: str) -> Response:
                 content=raw_body or None,
             )
     except httpx.HTTPError as exc:
-        event = _base_event(trace_id, request, started, model="", stream=False)
+        event = _base_event(trace_id, request, started, model="", stream=False, auth=auth, rate_limit=rate_limit)
         event.update({"decision": "error", "status_code": 502, "reason": str(exc)})
         audit_log.append(event)
         return _error_response(trace_id, 502, "upstream_error", str(exc))
 
-    event = _base_event(trace_id, request, started, model="", stream=False)
+    event = _base_event(trace_id, request, started, model="", stream=False, auth=auth, rate_limit=rate_limit)
     event.update(
         {
             "decision": "allowed",
@@ -177,9 +232,10 @@ async def _proxy_buffered(
     event: dict[str, Any],
     input_findings: list[dict[str, Any]],
     input_redacted: bool,
+    auth: AuthResult,
 ) -> Response:
     upstream_url = _upstream_url(request.url.path)
-    headers = _forward_headers(request, trace_id)
+    headers = _forward_headers(request, trace_id, auth)
 
     try:
         async with httpx.AsyncClient(timeout=settings.upstream_timeout_seconds) as client:
@@ -249,9 +305,10 @@ async def _proxy_streaming(
     event: dict[str, Any],
     input_findings: list[dict[str, Any]],
     input_redacted: bool,
+    auth: AuthResult,
 ) -> Response:
     upstream_url = _upstream_url(request.url.path)
-    headers = _forward_headers(request, trace_id)
+    headers = _forward_headers(request, trace_id, auth)
     client = httpx.AsyncClient(timeout=None)
 
     try:
@@ -370,8 +427,10 @@ def _upstream_url(request_path: str) -> str:
     return settings.upstream_base_url.rstrip("/") + path
 
 
-def _forward_headers(request: Request, trace_id: str) -> dict[str, str]:
-    blocked = {"host", "content-length", "connection"}
+def _forward_headers(request: Request, trace_id: str, auth: AuthResult) -> dict[str, str]:
+    blocked = {"host", "content-length", "connection", settings.gateway_api_key_header.lower()}
+    if gateway_auth.enabled and auth.used_authorization_header and not settings.upstream_api_key:
+        blocked.add("authorization")
     headers = {k: v for k, v in request.headers.items() if k.lower() not in blocked}
     if settings.upstream_api_key:
         headers["authorization"] = f"Bearer {settings.upstream_api_key}"
@@ -406,6 +465,7 @@ def _error_response(
     code: str,
     message: str,
     extra: dict[str, Any] | None = None,
+    headers: dict[str, str] | None = None,
 ) -> JSONResponse:
     body: dict[str, Any] = {
         "error": {
@@ -417,11 +477,19 @@ def _error_response(
     }
     if extra:
         body["error"].update(extra)
-    return JSONResponse(body, status_code=status_code)
+    return JSONResponse(body, status_code=status_code, headers=headers)
 
 
-def _base_event(trace_id: str, request: Request, started: float, model: str, stream: bool) -> dict[str, Any]:
-    return {
+def _base_event(
+    trace_id: str,
+    request: Request,
+    started: float,
+    model: str,
+    stream: bool,
+    auth: AuthResult,
+    rate_limit: RateLimitResult | None = None,
+) -> dict[str, Any]:
+    event = {
         "trace_id": trace_id,
         "ts": datetime.now(UTC).isoformat(),
         "method": request.method,
@@ -429,8 +497,17 @@ def _base_event(trace_id: str, request: Request, started: float, model: str, str
         "model": model,
         "stream": stream,
         "client": request.client.host if request.client else "",
+        "principal": auth.principal,
+        "auth_method": auth.method,
         "latency_ms": _elapsed_ms(started),
     }
+    if rate_limit is not None and rate_limit.limit:
+        event["rate_limit"] = {
+            "limit": rate_limit.limit,
+            "remaining": rate_limit.remaining,
+            "retry_after_seconds": rate_limit.retry_after_seconds,
+        }
+    return event
 
 
 def _decision(blocked: bool, redacted: bool) -> str:
@@ -459,4 +536,3 @@ if __name__ == "__main__":
     import uvicorn
 
     uvicorn.run("app.main:app", host=settings.bind_host, port=settings.bind_port, reload=False)
-

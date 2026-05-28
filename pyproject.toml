@@ -1,0 +1,24 @@
+[project]
+name = "llm-waf"
+version = "0.1.0"
+description = "Zero-intrusion LLM security gateway with streaming proxy, redaction, audit logs, and dashboard."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+authors = [{ name = "LLM-WAF contributors" }]
+dependencies = [
+  "fastapi==0.111.0",
+  "uvicorn[standard]==0.29.0",
+  "httpx==0.27.0",
+  "python-dotenv==1.0.1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+

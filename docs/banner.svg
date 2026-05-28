@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 300" role="img" aria-label="LLM-WAF - Zero-intrusion LLM security gateway">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0b1020"/>
+      <stop offset="55%" stop-color="#111a35"/>
+      <stop offset="100%" stop-color="#1a2550"/>
+    </linearGradient>
+    <linearGradient id="shieldFill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#3b82f6"/>
+      <stop offset="100%" stop-color="#1d4ed8"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#22d3ee"/>
+      <stop offset="100%" stop-color="#a78bfa"/>
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="6" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <rect width="1200" height="300" fill="url(#bg)"/>
+
+  <g stroke="#1e2a52" stroke-width="1" opacity="0.55">
+    <path d="M0 60 H1200"/><path d="M0 120 H1200"/><path d="M0 180 H1200"/><path d="M0 240 H1200"/>
+    <path d="M200 0 V300"/><path d="M400 0 V300"/><path d="M600 0 V300"/><path d="M800 0 V300"/><path d="M1000 0 V300"/>
+  </g>
+
+  <g transform="translate(120 60)">
+    <path d="M90 0 L180 35 V110 C180 165 138 198 90 215 C42 198 0 165 0 110 V35 Z"
+          fill="url(#shieldFill)" stroke="#60a5fa" stroke-width="2" filter="url(#glow)"/>
+    <path d="M50 110 L80 140 L135 80" fill="none" stroke="#ffffff" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <g font-family="ui-sans-serif, system-ui, 'Segoe UI', sans-serif">
+    <text x="360" y="135" font-size="78" font-weight="800" fill="#ffffff" letter-spacing="2">LLM-WAF</text>
+    <rect x="362" y="152" width="120" height="4" fill="url(#accent)"/>
+    <text x="360" y="195" font-size="24" font-weight="500" fill="#cbd5f5">
+      Zero-intrusion security gateway for OpenAI-compatible LLM APIs
+    </text>
+    <g font-size="16" fill="#93c5fd" font-weight="600">
+      <text x="360" y="238">STREAMING-SAFE</text>
+      <text x="540" y="238">PII / SECRET REDACTION</text>
+      <text x="790" y="238">PROMPT-INJECTION BLOCK</text>
+      <text x="1030" y="238">AUDIT + DASHBOARD</text>
+    </g>
+  </g>
+
+  <rect x="0" y="294" width="1200" height="6" fill="url(#accent)"/>
+</svg>

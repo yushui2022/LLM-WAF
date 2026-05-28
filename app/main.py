@@ -1,0 +1,462 @@
+"""LLM-WAF MVP gateway.
+
+Run locally:
+    uvicorn app.main:app --host 0.0.0.0 --port 8080
+"""
+
+from __future__ import annotations
+
+import codecs
+import hashlib
+import json
+import time
+import uuid
+from datetime import UTC, datetime
+from typing import Any
+
+import httpx
+from fastapi import FastAPI, Request, Response
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+
+from app.audit import AuditLog
+from app.config import settings
+from app.dashboard import render_dashboard
+from app.security.payload import (
+    extract_request_text,
+    extract_response_text,
+    json_dumps,
+    redact_request_body,
+    redact_response_body,
+    redact_sse_json_payload,
+)
+from app.security.scanner import SecurityScanner
+
+
+app = FastAPI(
+    title="LLM-WAF",
+    description="Zero-intrusion LLM security gateway with streaming proxy, redaction, audit logs, and dashboard.",
+    version="0.1.0",
+)
+
+if settings.enable_cors:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[origin.strip() for origin in settings.cors_allow_origins.split(",")],
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+scanner = SecurityScanner()
+audit_log = AuditLog(settings.audit_log_path)
+
+
+@app.get("/")
+async def index() -> dict[str, str]:
+    return {
+        "service": settings.service_name,
+        "version": "0.1.0",
+        "chat_completions": "/v1/chat/completions",
+        "dashboard": "/dashboard",
+        "health": "/health",
+    }
+
+
+@app.get("/health")
+async def health() -> dict[str, str]:
+    return {"status": "ok", "service": settings.service_name, "version": "0.1.0"}
+
+
+@app.get("/dashboard", response_class=HTMLResponse)
+async def dashboard() -> HTMLResponse:
+    events = audit_log.tail(settings.dashboard_limit)
+    return HTMLResponse(render_dashboard(events))
+
+
+@app.post("/v1/chat/completions")
+async def chat_completions(request: Request) -> Response:
+    trace_id = _trace_id()
+    started = time.perf_counter()
+    raw_body = await request.body()
+
+    if len(raw_body) > settings.max_body_bytes:
+        event = _base_event(trace_id, request, started, model="", stream=False)
+        event.update({"decision": "blocked", "status_code": 413, "reason": "request_too_large"})
+        audit_log.append(event)
+        return _error_response(trace_id, 413, "request_too_large", "Request body exceeds MAX_BODY_BYTES.")
+
+    try:
+        body = json.loads(raw_body)
+    except json.JSONDecodeError:
+        event = _base_event(trace_id, request, started, model="", stream=False)
+        event.update({"decision": "blocked", "status_code": 400, "reason": "invalid_json"})
+        audit_log.append(event)
+        return _error_response(trace_id, 400, "invalid_json", "Invalid JSON request body.")
+
+    stream = bool(body.get("stream"))
+    model = str(body.get("model", ""))
+    request_text = extract_request_text(body)
+    input_scan = scanner.scan_input(request_text)
+    findings = input_scan.to_audit_findings()
+
+    event = _base_event(trace_id, request, started, model=model, stream=stream)
+    event["prompt_sha256"] = _sha256(request_text)
+
+    if input_scan.blocked:
+        event.update(
+            {
+                "decision": "blocked",
+                "status_code": settings.blocked_status_code,
+                "finding_count": len(findings),
+                "findings": findings,
+            }
+        )
+        audit_log.append(event)
+        return _blocked_response(trace_id, findings)
+
+    forwarded_body = body
+    input_redacted = bool(input_scan.redacted and settings.redact_inputs)
+    if input_redacted:
+        forwarded_body = redact_request_body(body, scanner.redact_sensitive)
+
+    if stream:
+        return await _proxy_streaming(request, trace_id, started, forwarded_body, event, findings, input_redacted)
+    return await _proxy_buffered(request, trace_id, started, forwarded_body, event, findings, input_redacted)
+
+
+@app.api_route("/v1/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+async def passthrough(request: Request, path: str) -> Response:
+    """Pass through non-chat OpenAI-compatible routes such as /v1/models."""
+
+    trace_id = _trace_id()
+    started = time.perf_counter()
+    raw_body = await request.body()
+    upstream_url = _upstream_url(request.url.path)
+    headers = _forward_headers(request, trace_id)
+
+    try:
+        async with httpx.AsyncClient(timeout=settings.upstream_timeout_seconds) as client:
+            upstream = await client.request(
+                request.method,
+                upstream_url,
+                params=request.query_params,
+                headers=headers,
+                content=raw_body or None,
+            )
+    except httpx.HTTPError as exc:
+        event = _base_event(trace_id, request, started, model="", stream=False)
+        event.update({"decision": "error", "status_code": 502, "reason": str(exc)})
+        audit_log.append(event)
+        return _error_response(trace_id, 502, "upstream_error", str(exc))
+
+    event = _base_event(trace_id, request, started, model="", stream=False)
+    event.update(
+        {
+            "decision": "allowed",
+            "status_code": upstream.status_code,
+            "upstream_status": upstream.status_code,
+            "latency_ms": _elapsed_ms(started),
+            "finding_count": 0,
+            "findings": [],
+        }
+    )
+    audit_log.append(event)
+    return Response(
+        content=upstream.content,
+        status_code=upstream.status_code,
+        headers=_response_headers(upstream),
+        media_type=upstream.headers.get("content-type"),
+    )
+
+
+async def _proxy_buffered(
+    request: Request,
+    trace_id: str,
+    started: float,
+    body: dict[str, Any],
+    event: dict[str, Any],
+    input_findings: list[dict[str, Any]],
+    input_redacted: bool,
+) -> Response:
+    upstream_url = _upstream_url(request.url.path)
+    headers = _forward_headers(request, trace_id)
+
+    try:
+        async with httpx.AsyncClient(timeout=settings.upstream_timeout_seconds) as client:
+            upstream = await client.post(upstream_url, params=request.query_params, headers=headers, json=body)
+    except httpx.HTTPError as exc:
+        event.update(
+            {
+                "decision": "error",
+                "status_code": 502,
+                "reason": str(exc),
+                "finding_count": len(input_findings),
+                "findings": input_findings,
+                "latency_ms": _elapsed_ms(started),
+            }
+        )
+        audit_log.append(event)
+        return _error_response(trace_id, 502, "upstream_error", str(exc))
+
+    content = upstream.content
+    response_headers = _response_headers(upstream)
+    output_findings: list[dict[str, Any]] = []
+    output_redacted = False
+
+    if settings.scan_outputs and _looks_like_json(upstream):
+        try:
+            response_body = upstream.json()
+            output_text = extract_response_text(response_body)
+            output_scan = scanner.scan_output(output_text)
+            output_findings = output_scan.to_audit_findings()
+            output_redacted = bool(output_scan.redacted and settings.redact_outputs)
+            if output_redacted:
+                response_body = redact_response_body(response_body, scanner.redact_output)
+                content = json_dumps(response_body).encode("utf-8")
+                response_headers.pop("content-length", None)
+        except (ValueError, TypeError):
+            pass
+
+    findings = input_findings + output_findings
+    decision = _decision(blocked=False, redacted=input_redacted or output_redacted)
+    event.update(
+        {
+            "decision": decision,
+            "status_code": upstream.status_code,
+            "upstream_status": upstream.status_code,
+            "latency_ms": _elapsed_ms(started),
+            "finding_count": len(findings),
+            "findings": findings,
+            "input_redacted": input_redacted,
+            "output_redacted": output_redacted,
+        }
+    )
+    audit_log.append(event)
+
+    return Response(
+        content=content,
+        status_code=upstream.status_code,
+        headers=response_headers,
+        media_type=upstream.headers.get("content-type"),
+    )
+
+
+async def _proxy_streaming(
+    request: Request,
+    trace_id: str,
+    started: float,
+    body: dict[str, Any],
+    event: dict[str, Any],
+    input_findings: list[dict[str, Any]],
+    input_redacted: bool,
+) -> Response:
+    upstream_url = _upstream_url(request.url.path)
+    headers = _forward_headers(request, trace_id)
+    client = httpx.AsyncClient(timeout=None)
+
+    try:
+        upstream_request = client.build_request(
+            "POST",
+            upstream_url,
+            params=request.query_params,
+            headers=headers,
+            json=body,
+        )
+        upstream = await client.send(upstream_request, stream=True)
+    except httpx.HTTPError as exc:
+        await client.aclose()
+        event.update(
+            {
+                "decision": "error",
+                "status_code": 502,
+                "reason": str(exc),
+                "finding_count": len(input_findings),
+                "findings": input_findings,
+                "latency_ms": _elapsed_ms(started),
+            }
+        )
+        audit_log.append(event)
+        return _error_response(trace_id, 502, "upstream_error", str(exc))
+
+    output_findings: list[dict[str, Any]] = []
+    output_redacted = False
+    content_type = upstream.headers.get("content-type", "text/event-stream")
+
+    async def generate():
+        nonlocal output_redacted
+        decoder = codecs.getincrementaldecoder("utf-8")()
+        buffer = ""
+        try:
+            async for chunk in upstream.aiter_bytes():
+                if not settings.scan_outputs or "text/event-stream" not in content_type:
+                    yield chunk
+                    continue
+                buffer += decoder.decode(chunk)
+                while "\n\n" in buffer:
+                    frame, buffer = buffer.split("\n\n", 1)
+                    transformed, changed, frame_findings = _transform_sse_frame(frame)
+                    output_redacted = output_redacted or changed
+                    output_findings.extend(frame_findings)
+                    yield transformed + "\n\n"
+            tail = buffer + decoder.decode(b"", final=True)
+            if tail:
+                transformed, changed, frame_findings = _transform_sse_frame(tail)
+                output_redacted = output_redacted or changed
+                output_findings.extend(frame_findings)
+                yield transformed
+        finally:
+            await upstream.aclose()
+            await client.aclose()
+            findings = input_findings + output_findings[:20]
+            event.update(
+                {
+                    "decision": _decision(blocked=False, redacted=input_redacted or output_redacted),
+                    "status_code": upstream.status_code,
+                    "upstream_status": upstream.status_code,
+                    "latency_ms": _elapsed_ms(started),
+                    "finding_count": len(findings),
+                    "findings": findings,
+                    "input_redacted": input_redacted,
+                    "output_redacted": output_redacted,
+                }
+            )
+            audit_log.append(event)
+
+    return StreamingResponse(
+        generate(),
+        status_code=upstream.status_code,
+        headers=_response_headers(upstream),
+        media_type=content_type,
+    )
+
+
+def _transform_sse_frame(frame: str) -> tuple[str, bool, list[dict[str, Any]]]:
+    changed = False
+    findings: list[dict[str, Any]] = []
+    out_lines: list[str] = []
+
+    for line in frame.splitlines():
+        if not line.startswith("data:"):
+            out_lines.append(line)
+            continue
+        data = line[5:].strip()
+        if not data or data == "[DONE]":
+            out_lines.append(line)
+            continue
+        try:
+            payload = json.loads(data)
+        except json.JSONDecodeError:
+            out_lines.append(line)
+            continue
+
+        output_text = extract_response_text(payload)
+        if output_text:
+            scan = scanner.scan_output(output_text)
+            findings.extend(scan.to_audit_findings(limit=5))
+
+        payload, payload_changed = redact_sse_json_payload(payload, scanner.redact_output)
+        changed = changed or payload_changed
+        out_lines.append("data: " + json_dumps(payload))
+
+    return "\n".join(out_lines), changed, findings
+
+
+def _upstream_url(request_path: str) -> str:
+    path = request_path
+    if path == "/v1":
+        path = ""
+    elif path.startswith("/v1/"):
+        path = path[3:]
+    return settings.upstream_base_url.rstrip("/") + path
+
+
+def _forward_headers(request: Request, trace_id: str) -> dict[str, str]:
+    blocked = {"host", "content-length", "connection"}
+    headers = {k: v for k, v in request.headers.items() if k.lower() not in blocked}
+    if settings.upstream_api_key:
+        headers["authorization"] = f"Bearer {settings.upstream_api_key}"
+    headers["x-llm-waf-trace-id"] = trace_id
+    return headers
+
+
+def _response_headers(upstream: httpx.Response) -> dict[str, str]:
+    blocked = {"content-length", "content-encoding", "transfer-encoding", "connection"}
+    return {k: v for k, v in upstream.headers.items() if k.lower() not in blocked}
+
+
+def _looks_like_json(response: httpx.Response) -> bool:
+    return "application/json" in response.headers.get("content-type", "")
+
+
+def _blocked_response(trace_id: str, findings: list[dict[str, Any]]) -> JSONResponse:
+    top = findings[0] if findings else {}
+    message = top.get("description", "Request blocked by LLM-WAF policy.")
+    return _error_response(
+        trace_id,
+        settings.blocked_status_code,
+        "waf_blocked",
+        str(message),
+        extra={"findings": findings},
+    )
+
+
+def _error_response(
+    trace_id: str,
+    status_code: int,
+    code: str,
+    message: str,
+    extra: dict[str, Any] | None = None,
+) -> JSONResponse:
+    body: dict[str, Any] = {
+        "error": {
+            "message": f"[LLM-WAF] {message}",
+            "type": code,
+            "code": code,
+            "trace_id": trace_id,
+        }
+    }
+    if extra:
+        body["error"].update(extra)
+    return JSONResponse(body, status_code=status_code)
+
+
+def _base_event(trace_id: str, request: Request, started: float, model: str, stream: bool) -> dict[str, Any]:
+    return {
+        "trace_id": trace_id,
+        "ts": datetime.now(UTC).isoformat(),
+        "method": request.method,
+        "path": request.url.path,
+        "model": model,
+        "stream": stream,
+        "client": request.client.host if request.client else "",
+        "latency_ms": _elapsed_ms(started),
+    }
+
+
+def _decision(blocked: bool, redacted: bool) -> str:
+    if blocked:
+        return "blocked"
+    if redacted:
+        return "redacted"
+    return "allowed"
+
+
+def _trace_id() -> str:
+    return "waf_" + uuid.uuid4().hex
+
+
+def _elapsed_ms(started: float) -> float:
+    return round((time.perf_counter() - started) * 1000, 2)
+
+
+def _sha256(text: str) -> str:
+    if not text:
+        return ""
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run("app.main:app", host=settings.bind_host, port=settings.bind_port, reload=False)
+

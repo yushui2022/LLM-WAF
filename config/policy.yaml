@@ -1,0 +1,30 @@
+# LLM-WAF route policy.
+#
+# The gateway runs with this default policy if POLICY_PATH points here.
+# Delete or unset POLICY_PATH to use equivalent built-in defaults.
+
+default:
+  input_scanning: true
+  output_scanning: true
+  redact_inputs: true
+  redact_outputs: true
+  block_prompt_injection: true
+  audit: true
+  blocked_status_code: 403
+
+routes:
+  - name: chat_completions
+    path: /v1/chat/completions
+    input_scanning: true
+    output_scanning: true
+    redact_inputs: true
+    redact_outputs: true
+    block_prompt_injection: true
+    blocked_status_code: 403
+
+  - name: metadata_passthrough
+    path: /v1/models
+    input_scanning: false
+    output_scanning: false
+    redact_inputs: false
+    redact_outputs: false

@@ -62,6 +62,7 @@ class Settings:
     gateway_api_keys: tuple[str, ...] = _env_csv("GATEWAY_API_KEYS")
     gateway_api_key_header: str = os.getenv("GATEWAY_API_KEY_HEADER", "X-LLM-WAF-Key")
     rate_limit_per_minute: int = _env_int("RATE_LIMIT_PER_MINUTE", 0)
+    policy_path: Path = Path(os.getenv("POLICY_PATH", "config/policy.yaml"))
     fail_closed: bool = _env_bool("FAIL_CLOSED", False)
     redact_inputs: bool = _env_bool("REDACT_INPUTS", True)
     redact_outputs: bool = _env_bool("REDACT_OUTPUTS", True)

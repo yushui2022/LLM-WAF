@@ -108,7 +108,8 @@ Tasks:
 - Add per-rule enable/disable support in `config/policy.yaml`. (done)
 - Add `action: block | redact | log_only`.
 - Add rule tags such as `cn`, `en`, `encoded`, `jailbreak`, `system_prompt`.
-- Add audit summary that groups findings by category and severity.
+- Add audit summary that groups findings by category and severity. (done)
+- Add dashboard finding summary views for category and severity. (done)
 - Add dashboard filters for decision/category/severity.
 
 Exit criteria:
@@ -231,8 +232,8 @@ Potential future work:
 
 Start here:
 
-1. Improve audit finding schema and dashboard finding views.
+1. Add dashboard filters for decision/category/severity.
 2. Add tool-call argument scanning and policy.
 3. Add generated Python fallback checks for `config/rules.yaml`.
 
-The next implementation task should be **improve audit finding schema and dashboard finding views**, unless a blocking bug appears first.
+The next implementation task should be **dashboard filters for decision/category/severity**, unless a blocking bug appears first.

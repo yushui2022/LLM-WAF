@@ -50,6 +50,12 @@ def render_dashboard(events: list[dict[str, Any]]) -> str:
     .error {{ background: #eceff3; color: #4b5563; }}
     .empty {{ color: var(--muted); text-align: center; padding: 28px; }}
     .findings {{ max-width: 360px; color: #334155; }}
+    .finding {{ margin: 0 0 8px; }}
+    .evidence {{ margin-top: 2px; color: var(--muted); }}
+    .tags {{ margin: 0 0 8px; }}
+    .tag {{ display: inline-block; border: 1px solid var(--border); border-radius: 999px; padding: 2px 7px; margin: 0 4px 4px 0; background: #f8fafc; color: #334155; font-size: 11px; }}
+    .tag.critical {{ border-color: #f0b4b4; background: #ffe5e5; color: #9d1c1c; }}
+    .tag.high {{ border-color: #f3d08a; background: #fff3d9; color: #7a4b00; }}
     @media (max-width: 900px) {{
       .stats {{ grid-template-columns: repeat(2, minmax(130px, 1fr)); }}
       table {{ display: block; overflow-x: auto; }}
@@ -110,12 +116,9 @@ def _render_row(event: dict[str, Any]) -> str:
     latency = event.get("latency_ms")
     latency_text = "" if latency is None else f"{latency} ms"
     findings = event.get("findings", []) or []
-    finding_text = "<br>".join(
-        f"<code>{escape(str(f.get('rule_id', '')))}</code>: {escape(str(f.get('evidence', '')))}"
-        for f in findings[:3]
-    )
+    finding_text = _render_finding_summary(event) + "".join(_render_finding(f) for f in findings[:3])
     if len(findings) > 3:
-        finding_text += f"<br>+{len(findings) - 3} more"
+        finding_text += f'<div class="evidence">+{len(findings) - 3} more</div>'
 
     return f"""<tr>
       <td>{escape(str(event.get("ts", "")))}</td>
@@ -130,6 +133,66 @@ def _render_row(event: dict[str, Any]) -> str:
       <td><code>{trace_id[:12]}</code></td>
       <td class="findings">{finding_text}</td>
     </tr>"""
+
+
+def _render_finding_summary(event: dict[str, Any]) -> str:
+    summary = event.get("finding_summary")
+    if not isinstance(summary, dict):
+        summary = _summarize_findings(event.get("findings", []) or [])
+
+    badges: list[str] = []
+    max_severity = str(summary.get("max_severity", "none"))
+    if max_severity != "none":
+        badges.append(_tag(max_severity, css_class=max_severity))
+
+    by_category = summary.get("by_category", {})
+    if isinstance(by_category, dict):
+        for category, count in list(by_category.items())[:3]:
+            badges.append(_tag(f"{category}:{count}"))
+
+    if not badges:
+        return ""
+    return '<div class="tags">' + "".join(badges) + "</div>"
+
+
+def _render_finding(finding: dict[str, Any]) -> str:
+    rule_id = escape(str(finding.get("rule_id", "")))
+    category = str(finding.get("category", "unknown") or "unknown")
+    severity = str(finding.get("severity", "unknown") or "unknown")
+    action = str(finding.get("action", "unknown") or "unknown")
+    evidence = escape(str(finding.get("evidence", "")))
+    return (
+        '<div class="finding">'
+        f"<code>{rule_id}</code> "
+        f"{_tag(severity, css_class=severity)}"
+        f"{_tag(category)}"
+        f"{_tag(action)}"
+        f'<div class="evidence">{evidence}</div>'
+        "</div>"
+    )
+
+
+def _tag(text: str, css_class: str = "") -> str:
+    class_name = "tag"
+    if css_class:
+        class_name += " " + escape(css_class)
+    return f'<span class="{class_name}">{escape(text)}</span>'
+
+
+def _summarize_findings(findings: list[dict[str, Any]]) -> dict[str, Any]:
+    by_category = Counter(str(finding.get("category", "unknown") or "unknown") for finding in findings)
+    by_severity = Counter(str(finding.get("severity", "unknown") or "unknown") for finding in findings)
+    return {
+        "by_category": dict(by_category),
+        "max_severity": _max_severity(by_severity),
+    }
+
+
+def _max_severity(counts: Counter[str]) -> str:
+    order = {"info": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
+    if not counts:
+        return "none"
+    return max(counts, key=lambda severity: order.get(severity, 0))
 
 
 def _total_tokens(event: dict[str, Any]) -> int:

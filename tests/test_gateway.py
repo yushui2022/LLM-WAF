@@ -126,6 +126,28 @@ class GatewayTests(unittest.TestCase):
         self.assertEqual(findings, [])
         self.assertEqual(usage, {})
 
+    def test_finding_fields_include_summary(self):
+        fields = main_module._finding_fields(
+            [
+                {
+                    "rule_id": "inj.ignore_previous.en",
+                    "category": "prompt_injection",
+                    "severity": "critical",
+                    "action": "block",
+                },
+                {
+                    "rule_id": "pii.email",
+                    "category": "pii",
+                    "severity": "medium",
+                    "action": "redact",
+                },
+            ]
+        )
+        self.assertEqual(fields["finding_count"], 2)
+        self.assertEqual(fields["finding_summary"]["by_category"]["prompt_injection"], 1)
+        self.assertEqual(fields["finding_summary"]["by_action"]["redact"], 1)
+        self.assertEqual(fields["finding_summary"]["max_severity"], "critical")
+
 
 if __name__ == "__main__":
     unittest.main()

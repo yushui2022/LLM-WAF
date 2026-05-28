@@ -11,6 +11,7 @@ import hashlib
 import json
 import time
 import uuid
+from collections import Counter
 from datetime import UTC, datetime
 from typing import Any
 
@@ -154,8 +155,7 @@ async def chat_completions(request: Request) -> Response:
             {
                 "decision": "blocked",
                 "status_code": policy.blocked_status_code,
-                "finding_count": len(findings),
-                "findings": findings,
+                **_finding_fields(findings),
             }
         )
         _audit(event, policy)
@@ -233,8 +233,7 @@ async def passthrough(request: Request, path: str) -> Response:
             "status_code": upstream.status_code,
             "upstream_status": upstream.status_code,
             "latency_ms": _elapsed_ms(started),
-            "finding_count": 0,
-            "findings": [],
+            **_finding_fields([]),
         }
     )
     _audit(event, policy)
@@ -269,8 +268,7 @@ async def _proxy_buffered(
                 "decision": "error",
                 "status_code": 502,
                 "reason": str(exc),
-                "finding_count": len(input_findings),
-                "findings": input_findings,
+                **_finding_fields(input_findings),
                 "latency_ms": _elapsed_ms(started),
             }
         )
@@ -310,8 +308,7 @@ async def _proxy_buffered(
             "status_code": upstream.status_code,
             "upstream_status": upstream.status_code,
             "latency_ms": _elapsed_ms(started),
-            "finding_count": len(findings),
-            "findings": findings,
+            **_finding_fields(findings),
             "input_redacted": input_redacted,
             "output_redacted": output_redacted,
         }
@@ -362,8 +359,7 @@ async def _proxy_streaming(
                 "decision": "error",
                 "status_code": 502,
                 "reason": str(exc),
-                "finding_count": len(input_findings),
-                "findings": input_findings,
+                **_finding_fields(input_findings),
                 "latency_ms": _elapsed_ms(started),
             }
         )
@@ -421,8 +417,7 @@ async def _proxy_streaming(
                     "status_code": upstream.status_code,
                     "upstream_status": upstream.status_code,
                     "latency_ms": _elapsed_ms(started),
-                    "finding_count": len(findings),
-                    "findings": findings,
+                    **_finding_fields(findings),
                     "input_redacted": input_redacted,
                     "output_redacted": output_redacted,
                 }
@@ -585,6 +580,42 @@ def _base_event(
 def _audit(event: dict[str, Any], policy: RoutePolicy) -> None:
     if policy.audit:
         audit_log.append(event)
+
+
+def _finding_fields(findings: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "finding_count": len(findings),
+        "findings": findings,
+        "finding_summary": _finding_summary(findings),
+    }
+
+
+def _finding_summary(findings: list[dict[str, Any]]) -> dict[str, Any]:
+    by_category: Counter[str] = Counter()
+    by_severity: Counter[str] = Counter()
+    by_action: Counter[str] = Counter()
+
+    for finding in findings:
+        category = str(finding.get("category", "unknown") or "unknown")
+        severity = str(finding.get("severity", "unknown") or "unknown")
+        action = str(finding.get("action", "unknown") or "unknown")
+        by_category[category] += 1
+        by_severity[severity] += 1
+        by_action[action] += 1
+
+    return {
+        "by_category": dict(by_category),
+        "by_severity": dict(by_severity),
+        "by_action": dict(by_action),
+        "max_severity": _max_severity(by_severity),
+    }
+
+
+def _max_severity(counts: Counter[str]) -> str:
+    order = {"info": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
+    if not counts:
+        return "none"
+    return max(counts, key=lambda severity: order.get(severity, 0))
 
 
 def _decision(blocked: bool, redacted: bool) -> str:

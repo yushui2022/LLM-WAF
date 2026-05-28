@@ -7,17 +7,19 @@ from html import escape
 from typing import Any
 
 
-def render_dashboard(events: list[dict[str, Any]]) -> str:
-    recent = list(reversed(events))
-    stats = Counter(event.get("decision", "unknown") for event in events)
-    total = len(events)
-    findings = sum(int(event.get("finding_count", 0)) for event in events)
-    tokens = sum(_total_tokens(event) for event in events)
-    total_cost = sum(_total_cost(event) for event in events)
+def render_dashboard(events: list[dict[str, Any]], filters: dict[str, str] | None = None) -> str:
+    active_filters = _normalize_filters(filters)
+    filtered_events = _filter_events(events, active_filters)
+    recent = list(reversed(filtered_events))
+    stats = Counter(event.get("decision", "unknown") for event in filtered_events)
+    total = len(filtered_events)
+    findings = sum(int(event.get("finding_count", 0)) for event in filtered_events)
+    tokens = sum(_total_tokens(event) for event in filtered_events)
+    total_cost = sum(_total_cost(event) for event in filtered_events)
 
     rows = "\n".join(_render_row(event) for event in recent)
     if not rows:
-        rows = '<tr><td colspan="11" class="empty">No requests yet. Send traffic through /v1/chat/completions.</td></tr>'
+        rows = '<tr><td colspan="11" class="empty">No matching requests. Adjust filters or send traffic through /v1/chat/completions.</td></tr>'
 
     return f"""<!doctype html>
 <html lang="en">
@@ -36,6 +38,12 @@ def render_dashboard(events: list[dict[str, Any]]) -> str:
     main {{ padding: 22px 28px 32px; }}
     .stats {{ display: grid; grid-template-columns: repeat(7, minmax(130px, 1fr)); gap: 12px; margin-bottom: 18px; }}
     .stat {{ background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 14px; }}
+    .filters {{ display: flex; flex-wrap: wrap; gap: 12px; align-items: end; margin-bottom: 18px; padding: 14px; background: #fff; border: 1px solid var(--border); border-radius: 8px; }}
+    .field {{ display: grid; gap: 4px; }}
+    label {{ color: var(--muted); font-size: 12px; text-transform: uppercase; }}
+    select {{ min-width: 150px; padding: 7px 9px; border: 1px solid var(--border); border-radius: 6px; background: #fff; color: var(--ink); }}
+    button, .clear {{ padding: 8px 11px; border: 1px solid var(--border); border-radius: 6px; background: #182230; color: #fff; font-weight: 700; text-decoration: none; }}
+    .clear {{ background: #fff; color: #334155; }}
     .label {{ color: var(--muted); font-size: 12px; text-transform: uppercase; }}
     .value {{ font-size: 28px; font-weight: 700; margin-top: 4px; }}
     table {{ width: 100%; border-collapse: collapse; background: #fff; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }}
@@ -68,6 +76,7 @@ def render_dashboard(events: list[dict[str, Any]]) -> str:
     <div class="sub">Auto-refreshes every 10 seconds. Shows the most recent audited requests.</div>
   </header>
   <main>
+    {_render_filters(events, active_filters)}
     <section class="stats">
       {_stat("Requests", total)}
       {_stat("Allowed", stats.get("allowed", 0))}
@@ -102,6 +111,96 @@ def render_dashboard(events: list[dict[str, Any]]) -> str:
 
 def _stat(label: str, value: int) -> str:
     return f'<div class="stat"><div class="label">{escape(label)}</div><div class="value">{value}</div></div>'
+
+
+def _render_filters(events: list[dict[str, Any]], active_filters: dict[str, str]) -> str:
+    decisions = _options(["allowed", "redacted", "blocked", "error"], _event_values(events, "decision"))
+    categories = _options([], _event_finding_values(events, "category"))
+    severities = _options(["critical", "high", "medium", "low", "info"], _event_finding_values(events, "severity"))
+    return f"""<form class="filters" method="get" action="/dashboard">
+      {_select("decision", "Decision", decisions, active_filters.get("decision", ""))}
+      {_select("category", "Category", categories, active_filters.get("category", ""))}
+      {_select("severity", "Severity", severities, active_filters.get("severity", ""))}
+      <button type="submit">Apply</button>
+      <a class="clear" href="/dashboard">Clear</a>
+    </form>"""
+
+
+def _select(name: str, label: str, options: list[str], selected: str) -> str:
+    option_html = ['<option value="">All</option>']
+    for option in options:
+        is_selected = " selected" if option == selected else ""
+        option_html.append(f'<option value="{escape(option)}"{is_selected}>{escape(option)}</option>')
+    return (
+        f'<div class="field"><label for="{escape(name)}">{escape(label)}</label>'
+        f'<select id="{escape(name)}" name="{escape(name)}">{"".join(option_html)}</select></div>'
+    )
+
+
+def _normalize_filters(filters: dict[str, str] | None) -> dict[str, str]:
+    if not filters:
+        return {}
+    return {
+        key: str(filters.get(key, "")).strip()
+        for key in ("decision", "category", "severity")
+        if str(filters.get(key, "")).strip()
+    }
+
+
+def _filter_events(events: list[dict[str, Any]], filters: dict[str, str]) -> list[dict[str, Any]]:
+    if not filters:
+        return events
+    return [event for event in events if _matches_filters(event, filters)]
+
+
+def _matches_filters(event: dict[str, Any], filters: dict[str, str]) -> bool:
+    decision = filters.get("decision")
+    if decision and str(event.get("decision", "")) != decision:
+        return False
+
+    category = filters.get("category")
+    if category and category not in _finding_values(event, "category"):
+        return False
+
+    severity = filters.get("severity")
+    if severity and severity not in _finding_values(event, "severity"):
+        return False
+
+    return True
+
+
+def _event_values(events: list[dict[str, Any]], field: str) -> list[str]:
+    return sorted({str(event.get(field, "")).strip() for event in events if str(event.get(field, "")).strip()})
+
+
+def _event_finding_values(events: list[dict[str, Any]], field: str) -> list[str]:
+    values: set[str] = set()
+    for event in events:
+        values.update(_finding_values(event, field))
+    return sorted(values)
+
+
+def _finding_values(event: dict[str, Any], field: str) -> set[str]:
+    findings = event.get("findings", []) or []
+    values = {str(finding.get(field, "")).strip() for finding in findings if str(finding.get(field, "")).strip()}
+    summary = event.get("finding_summary")
+    if isinstance(summary, dict):
+        key = f"by_{field}"
+        grouped = summary.get(key)
+        if isinstance(grouped, dict):
+            values.update(str(value).strip() for value in grouped if str(value).strip())
+    return values
+
+
+def _options(defaults: list[str], discovered: list[str]) -> list[str]:
+    seen: set[str] = set()
+    options: list[str] = []
+    for value in defaults + discovered:
+        if value in seen:
+            continue
+        seen.add(value)
+        options.append(value)
+    return options
 
 
 def _render_row(event: dict[str, Any]) -> str:

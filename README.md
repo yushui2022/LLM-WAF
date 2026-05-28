@@ -244,7 +244,7 @@ curl http://localhost:8080/v1/chat/completions \
 
 The request is forwarded with sensitive fields replaced, and a `redacted` event is written to `var/audit/events.jsonl`.
 
-Audit events include both raw findings and a compact `finding_summary` grouped by category, severity, and action. The dashboard uses that summary to show which WAF rules are firing without requiring users to inspect JSONL by hand.
+Audit events include both raw findings and a compact `finding_summary` grouped by category, severity, and action. The dashboard uses that summary to show which WAF rules are firing without requiring users to inspect JSONL by hand, and supports filters such as `/dashboard?decision=blocked&category=prompt_injection&severity=critical`.
 
 ## Usage tracking
 

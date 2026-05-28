@@ -62,6 +62,41 @@ class AuditLogTests(unittest.TestCase):
         self.assertIn("prompt_injection:1", html)
         self.assertIn("critical", html)
 
+    def test_dashboard_filters_by_finding_category(self):
+        html = render_dashboard(
+            [
+                {
+                    "trace_id": "allowed-row",
+                    "decision": "allowed",
+                    "finding_count": 0,
+                    "findings": [],
+                },
+                {
+                    "trace_id": "blocked-row",
+                    "decision": "blocked",
+                    "finding_count": 1,
+                    "finding_summary": {
+                        "by_category": {"prompt_injection": 1},
+                        "by_severity": {"critical": 1},
+                        "by_action": {"block": 1},
+                        "max_severity": "critical",
+                    },
+                    "findings": [
+                        {
+                            "rule_id": "inj.ignore_previous.en",
+                            "category": "prompt_injection",
+                            "severity": "critical",
+                            "action": "block",
+                            "evidence": "Ignore all previous instructions",
+                        }
+                    ],
+                },
+            ],
+            filters={"category": "prompt_injection"},
+        )
+        self.assertIn("blocked-row", html)
+        self.assertNotIn("allowed-row", html)
+
 
 if __name__ == "__main__":
     unittest.main()

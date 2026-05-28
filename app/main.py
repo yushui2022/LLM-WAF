@@ -85,9 +85,14 @@ async def health() -> dict[str, str]:
 
 
 @app.get("/dashboard", response_class=HTMLResponse)
-async def dashboard() -> HTMLResponse:
+async def dashboard(request: Request) -> HTMLResponse:
     events = audit_log.tail(settings.dashboard_limit)
-    return HTMLResponse(render_dashboard(events))
+    filters = {
+        "decision": request.query_params.get("decision", ""),
+        "category": request.query_params.get("category", ""),
+        "severity": request.query_params.get("severity", ""),
+    }
+    return HTMLResponse(render_dashboard(events, filters=filters))
 
 
 @app.post("/v1/chat/completions")

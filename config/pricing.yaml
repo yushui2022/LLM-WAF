@@ -1,0 +1,19 @@
+# LLM-WAF pricing table.
+#
+# Prices change frequently. Keep this file under your control and update it
+# from your provider's billing page. Rates are per 1,000,000 tokens.
+#
+# The checked-in defaults are zero-cost placeholders so the project never
+# publishes stale provider prices as facts.
+
+currency: USD
+
+models:
+  "*":
+    input_per_1m: 0
+    output_per_1m: 0
+
+  # Example:
+  # your-model-name:
+  #   input_per_1m: 1.00
+  #   output_per_1m: 3.00

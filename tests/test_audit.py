@@ -25,11 +25,13 @@ class AuditLogTests(unittest.TestCase):
                     "trace_id": "one",
                     "decision": "allowed",
                     "usage": {"prompt_tokens": 2, "completion_tokens": 3, "total_tokens": 5},
+                    "cost": {"total_cost": 0.000012},
                 }
             ]
         )
         self.assertIn("Tokens", html)
         self.assertIn(">5<", html)
+        self.assertIn("$0.000012", html)
 
 
 if __name__ == "__main__":

@@ -24,6 +24,7 @@ from app.audit import AuditLog
 from app.config import settings
 from app.dashboard import render_dashboard
 from app.policy import PolicyStore, RoutePolicy
+from app.pricing import PricingStore
 from app.security.payload import (
     extract_request_text,
     extract_response_text,
@@ -63,6 +64,7 @@ policy_store = PolicyStore.load(
         blocked_status_code=settings.blocked_status_code,
     ),
 )
+pricing_store = PricingStore.load(settings.pricing_path)
 
 
 @app.get("/")
@@ -306,6 +308,9 @@ async def _proxy_buffered(
     )
     if usage:
         event["usage"] = usage
+        cost = pricing_store.estimate(str(event.get("model", "")), usage)
+        if cost:
+            event["cost"] = cost
     _audit(event, policy)
 
     return Response(
@@ -410,6 +415,9 @@ async def _proxy_streaming(
             )
             if output_usage:
                 event["usage"] = output_usage
+                cost = pricing_store.estimate(str(event.get("model", "")), output_usage)
+                if cost:
+                    event["cost"] = cost
             _audit(event, policy)
 
     return StreamingResponse(

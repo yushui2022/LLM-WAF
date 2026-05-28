@@ -35,6 +35,7 @@ Most "LLM firewalls" make you rewrite your agent, break SSE streaming, or ship y
 - Optional gateway API-key authentication
 - Optional in-memory per-principal rate limiting
 - Token usage tracking from provider `usage` fields
+- Configurable model pricing table for estimated spend
 - JSONL audit log
 - Built-in `/dashboard`
 - Docker Compose one-command startup
@@ -221,7 +222,41 @@ When an upstream provider returns an OpenAI-compatible `usage` object, LLM-WAF r
 }
 ```
 
-The dashboard sums `total_tokens` across recent events. Streaming responses are also supported when the provider emits `usage` in an SSE frame, for example via OpenAI-style stream usage chunks. This MVP does not estimate dollar cost yet; the next step is a model pricing table.
+The dashboard sums `total_tokens` across recent events. Streaming responses are also supported when the provider emits `usage` in an SSE frame, for example via OpenAI-style stream usage chunks.
+
+## Cost estimates
+
+LLM-WAF can estimate spend when `usage` is present and the model matches `config/pricing.yaml`.
+
+```yaml
+currency: USD
+
+models:
+  your-model-name:
+    input_per_1m: 1.00
+    output_per_1m: 3.00
+
+  your-model-family*:
+    input_per_1m: 0.50
+    output_per_1m: 1.50
+```
+
+Rates are per 1,000,000 tokens. Exact model names and prefix wildcards ending in `*` are supported. The checked-in default pricing file uses zero-cost placeholders so the repository does not publish stale provider prices. Update it from your provider's billing page before relying on cost numbers.
+
+Audit events include:
+
+```json
+{
+  "cost": {
+    "model": "your-model-name",
+    "currency": "USD",
+    "input_cost": 0.0000018,
+    "output_cost": 0.0000042,
+    "total_cost": 0.000006,
+    "total_tokens": 19
+  }
+}
+```
 
 ## Configuration
 
@@ -235,6 +270,7 @@ The dashboard sums `total_tokens` across recent events. Streaming responses are 
 | `GATEWAY_API_KEY_HEADER` | `X-LLM-WAF-Key` | Header used for gateway authentication. |
 | `RATE_LIMIT_PER_MINUTE` | `0` | In-memory per-principal limit. `0` disables rate limiting. |
 | `POLICY_PATH` | `config/policy.yaml` | YAML route policy file. Missing file falls back to env/default settings. |
+| `PRICING_PATH` | `config/pricing.yaml` | YAML model pricing file for cost estimates. |
 | `REDACT_INPUTS` | `true` | Redact PII / secrets before forwarding. |
 | `SCAN_OUTPUTS` | `true` | Scan responses (streaming and non-streaming). |
 | `REDACT_OUTPUTS` | `true` | Redact sensitive content detected in responses. |

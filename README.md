@@ -50,7 +50,7 @@ Being upfront so you know what you're getting:
 
 - Streaming output scanning uses a bounded rolling window. It can detect patterns that straddle nearby SSE frames, but previously emitted bytes cannot be rewritten. Set `STREAM_HOLD_BACK_FRAMES=1` or higher when you prefer stronger leak control over lowest first-token latency.
 - Rate limiting defaults to local memory. Use `RATE_LIMIT_BACKEND=redis` for multi-replica deployments.
-- Anthropic / Gemini **native** protocols are not supported (use their OpenAI-compatible endpoints).
+- Anthropic / Gemini **native** protocols are not supported (use their OpenAI-compatible endpoints). See [docs/protocol-support.md](docs/protocol-support.md) for the current support matrix.
 - Chinese prompt-injection rule set is still early; keep adding real attack samples and benign hard negatives before trusting recall claims.
 - In streaming mode, `FAIL_CLOSED=true` can terminate the SSE stream with an error event after headers have already been sent.
 
@@ -78,6 +78,8 @@ UPSTREAM_BASE_URL=https://api.deepseek.com/v1
 # Ollama (local, OpenAI-compatible)
 UPSTREAM_BASE_URL=http://host.docker.internal:11434/v1
 ```
+
+LLM-WAF's native WAF extraction is currently scoped to OpenAI-compatible chat completions. Non-chat `/v1/*` routes are passthrough with auth, rate-limit, and audit only. See [docs/protocol-support.md](docs/protocol-support.md) before placing it in front of native Anthropic or Gemini clients.
 
 ## Use from the OpenAI SDK
 

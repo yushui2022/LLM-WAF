@@ -231,6 +231,7 @@ Potential future work:
 - OWASP LLM Top 10 mapping in findings.
 - Export audit events to OpenTelemetry.
 - Admin UI for policy edits.
+- Protocol support matrix and native-adapter requirements. (done)
 - Native provider adapters after OpenAI-compatible path is mature.
 
 ## Near-Term Execution Order

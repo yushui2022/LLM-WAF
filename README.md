@@ -454,6 +454,14 @@ python scripts/evaluate.py --direction output --show-misses --min-precision 0.95
 
 The eval output includes aggregate metrics and per-category metrics. For stricter rule work, add `--min-category-recall 0.95` so a strong overall score cannot hide a weak category. The default input eval set lives at `tests/eval_set.jsonl`; the default output eval set lives at `tests/output_eval_set.jsonl`. Add both malicious samples and benign hard negatives when changing rules; the goal is to improve recall without quietly increasing false positives.
 
+Create human-review candidates from real audit logs:
+
+```bash
+python scripts/audit_to_eval_candidates.py --audit var/audit/events.jsonl --output var/audit/eval_candidates.jsonl
+```
+
+This intentionally does **not** auto-update `config/rules.yaml`. It writes metadata-only candidates with `label: review`; maintainers should add reviewed text samples to the eval sets and pass the category-level eval gates before changing rules.
+
 ## Contributing
 
 Issues and PRs welcome — especially:

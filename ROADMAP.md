@@ -82,6 +82,7 @@ Tasks:
 - Add output-side eval set for leakage detection. (done)
 - Add CI workflow for unit tests and scanner eval.
 - Document false-positive reporting format.
+- Add audit-to-eval candidate extraction for reviewed rule updates. (done)
 
 Exit criteria:
 

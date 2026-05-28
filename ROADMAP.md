@@ -70,7 +70,7 @@ Goal: make the existing MVP reliable enough for outside users to try without obv
 
 Tasks:
 
-- Expand `tests/eval_set.jsonl` with more Chinese and multilingual attack samples.
+- Expand `tests/eval_set.jsonl` with more Chinese and multilingual attack samples. (done; continue expanding with real bypass reports)
 - Add benign hard negatives for security education content.
 - Add benign hard negatives for normal roleplay, writing, and instruction-following prompts.
 - Add encoded and obfuscated injection samples:
@@ -231,9 +231,8 @@ Potential future work:
 
 Start here:
 
-1. Add more Chinese and mixed-language eval samples.
-2. Move built-in scanner rules toward configurable rule metadata.
-3. Improve audit finding schema and dashboard finding views.
-4. Add tool-call argument scanning and policy.
+1. Move built-in scanner rules toward configurable rule metadata.
+2. Improve audit finding schema and dashboard finding views.
+3. Add tool-call argument scanning and policy.
 
-The next implementation task should be **more Chinese and mixed-language eval samples**, unless a blocking bug appears first.
+The next implementation task should be **move built-in scanner rules toward configurable rule metadata**, unless a blocking bug appears first.

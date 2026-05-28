@@ -9,7 +9,7 @@ This document is intentionally explicit so users do not assume native protocol c
 | Protocol / Route | Status | WAF Coverage |
 |---|---|---|
 | OpenAI-compatible `POST /v1/chat/completions` | Supported | Input scan, input redaction, tool-call argument scan, output scan, output redaction, streaming scan, audit. |
-| OpenAI-compatible `POST /v1/chat/completions` with SSE streaming | Supported | Rolling-window scan by default; optional `STREAM_HOLD_BACK_FRAMES` for stricter cross-frame redaction. |
+| OpenAI-compatible `POST /v1/chat/completions` with SSE streaming | Supported | Rolling-window scan + one-frame hold-back by default (`STREAM_HOLD_BACK_FRAMES=1`); raise for stricter cross-frame redaction, set `0` for lowest first-token latency. |
 | OpenAI-compatible `/v1/*` non-chat routes | Passthrough | Safe non-generation routes get auth, rate limit, and audit only. Request/response WAF scanning is not applied to generic passthrough routes. |
 | Anthropic native `/v1/messages` | Blocked by default | Not scanned natively. Use an OpenAI-compatible endpoint or adapter in front of LLM-WAF for now. |
 | OpenAI `/v1/responses` and legacy `/v1/completions` | Blocked by default | Not scanned by the current chat-completions WAF path. |

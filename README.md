@@ -48,7 +48,7 @@ Most "LLM firewalls" make you rewrite your agent, break SSE streaming, or ship y
 
 Being upfront so you know what you're getting:
 
-- Streaming output scanning uses a bounded rolling window. It can detect patterns that straddle nearby SSE frames, but previously emitted bytes cannot be rewritten. Set `STREAM_HOLD_BACK_FRAMES=1` or higher when you prefer stronger leak control over lowest first-token latency.
+- Streaming output scanning uses a bounded rolling window. Once an SSE frame has been forwarded to the client, those bytes cannot be rewritten. As of `STREAM_HOLD_BACK_FRAMES=1` (the default), the gateway delays one frame so that a finding completed by the next frame can still redact the held fragment. Set `STREAM_HOLD_BACK_FRAMES=0` if you need lowest first-token latency and accept that single-frame leaks of cross-frame findings can slip through; set `>=2` for stricter leak control at the cost of further latency.
 - Rate limiting defaults to local memory. Use `RATE_LIMIT_BACKEND=redis` for multi-replica deployments.
 - Anthropic / Gemini **native** protocols are not supported (use their OpenAI-compatible endpoints). See [docs/protocol-support.md](docs/protocol-support.md) for the current support matrix.
 - Known unscanned generation routes such as `/v1/messages`, `/v1/responses`, and `/v1/completions` are blocked by default instead of being silently proxied without WAF scanning.
@@ -359,7 +359,7 @@ Audit events include:
 | `REDACT_OUTPUTS` | `true` | Redact sensitive content detected in responses. |
 | `SCANNER_RULE_TIMEOUT_MS` | `50` | Advisory wall-clock budget per regex call. On timeout, a `scanner.timeout` finding is recorded and the scanner moves to the next rule. See `docs/rule-quality.md` for the CPython-GIL caveat. Set `0` to disable. |
 | `STREAM_SCAN_WINDOW_CHARS` | `4096` | Rolling character window used to detect output findings that straddle SSE frames. Set `0` to disable rolling-window stream scanning. |
-| `STREAM_HOLD_BACK_FRAMES` | `0` | Optional SSE frame hold-back. When greater than `0`, the gateway delays that many frames and can redact held fragments if a later frame completes a cross-frame finding. |
+| `STREAM_HOLD_BACK_FRAMES` | `1` | SSE frame hold-back. The gateway delays that many frames and can redact held fragments if a later frame completes a cross-frame finding. Set `0` for lowest first-token latency at the cost of single-frame cross-frame leaks. |
 | `SEMANTIC_SCANNER_URL` | empty | Optional HTTP scanner endpoint for semantic/model-based findings. Empty disables the hook. |
 | `SEMANTIC_SCANNER_TIMEOUT_SECONDS` | `2.0` | Timeout for the optional semantic scanner. |
 | `BLOCKED_STATUS_CODE` | `403` | HTTP status returned when a request is blocked. |
@@ -472,7 +472,7 @@ flowchart TB
     PA --> AUD
 ```
 
-Streaming responses are proxied as Server-Sent Events. Output scanning uses a rolling window so findings can span nearby frames. By default frames are forwarded immediately for low latency; set `STREAM_HOLD_BACK_FRAMES` to a small value, such as `1` or `2`, if you need the gateway to delay and redact held fragments when a later frame completes a finding.
+Streaming responses are proxied as Server-Sent Events. Output scanning uses a rolling window so findings can span nearby frames. By default the gateway holds back one frame (`STREAM_HOLD_BACK_FRAMES=1`) so that a finding completed by the next frame can still redact the held fragment. Set `STREAM_HOLD_BACK_FRAMES=0` to forward each frame immediately for lowest first-token latency, or `>=2` for stricter leak control.
 
 ## Local development
 

@@ -30,6 +30,7 @@ Most "LLM firewalls" make you rewrite your agent, break SSE streaming, or ship y
 - **Input blocking** for high-confidence prompt injection and jailbreak patterns
 - **Input redaction** for email, Chinese mobile, Chinese ID, common API keys, generic secret assignments, GitHub tokens, AWS access keys, and private keys
 - **Output redaction** for secrets / PII and simple system-prompt leak hints
+- **Tool-call argument scanning** for OpenAI-compatible `tool_calls[].function.arguments` in requests and responses
 - `/v1/*` passthrough for non-chat routes such as `/v1/models`
 - Route policy YAML for per-route scan / redaction settings and rule disables
 - YAML scanner rule set with Python fallback defaults

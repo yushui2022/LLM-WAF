@@ -147,7 +147,7 @@ Goal: protect dangerous actions even when the model is manipulated.
 
 Tasks:
 
-- Scan OpenAI `tool_calls[].function.arguments`.
+- Scan OpenAI `tool_calls[].function.arguments`. (partially done; request and response text/redaction paths covered)
 - Add tool-risk policy model:
   - read-only
   - network

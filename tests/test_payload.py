@@ -1,6 +1,13 @@
 import unittest
 
-from app.security.payload import extract_request_text, extract_usage, redact_request_body
+from app.security.payload import (
+    extract_request_text,
+    extract_response_text,
+    extract_usage,
+    redact_request_body,
+    redact_response_body,
+    redact_sse_json_payload,
+)
 from app.security.scanner import SecurityScanner
 
 
@@ -54,6 +61,53 @@ class PayloadTests(unittest.TestCase):
             }
         )
         self.assertEqual(usage, {"prompt_tokens": 12, "completion_tokens": 7, "total_tokens": 19})
+
+    def test_extracts_response_tool_call_arguments(self):
+        body = {
+            "choices": [
+                {
+                    "message": {
+                        "tool_calls": [
+                            {"function": {"name": "send_email", "arguments": "{\"email\":\"test@example.com\"}"}}
+                        ]
+                    }
+                }
+            ]
+        }
+        self.assertIn("test@example.com", extract_response_text(body))
+
+    def test_redacts_response_tool_call_arguments(self):
+        body = {
+            "choices": [
+                {
+                    "message": {
+                        "tool_calls": [
+                            {"function": {"name": "send_email", "arguments": "{\"email\":\"test@example.com\"}"}}
+                        ]
+                    }
+                }
+            ]
+        }
+        redacted = redact_response_body(body, self.scanner.redact_output)
+        arguments = redacted["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"]
+        self.assertIn("[REDACTED:email]", arguments)
+
+    def test_redacts_streaming_tool_call_arguments(self):
+        payload = {
+            "choices": [
+                {
+                    "delta": {
+                        "tool_calls": [
+                            {"function": {"name": "send_email", "arguments": "{\"email\":\"test@example.com\"}"}}
+                        ]
+                    }
+                }
+            ]
+        }
+        redacted, changed = redact_sse_json_payload(payload, self.scanner.redact_output)
+        arguments = redacted["choices"][0]["delta"]["tool_calls"][0]["function"]["arguments"]
+        self.assertTrue(changed)
+        self.assertIn("[REDACTED:email]", arguments)
 
 
 if __name__ == "__main__":

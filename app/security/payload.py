@@ -14,11 +14,7 @@ def extract_request_text(body: dict[str, Any]) -> str:
         if not isinstance(message, dict):
             continue
         _collect_content_text(message.get("content"), parts)
-        for tool_call in message.get("tool_calls", []) or []:
-            function = tool_call.get("function", {}) if isinstance(tool_call, dict) else {}
-            arguments = function.get("arguments")
-            if isinstance(arguments, str):
-                parts.append(arguments)
+        _collect_tool_call_arguments(message.get("tool_calls"), parts)
     return "\n".join(p for p in parts if p)
 
 
@@ -28,15 +24,7 @@ def redact_request_body(body: dict[str, Any], redact: Callable[[str], str]) -> d
         if not isinstance(message, dict):
             continue
         message["content"] = _redact_content(message.get("content"), redact)
-        for tool_call in message.get("tool_calls", []) or []:
-            if not isinstance(tool_call, dict):
-                continue
-            function = tool_call.get("function")
-            if not isinstance(function, dict):
-                continue
-            arguments = function.get("arguments")
-            if isinstance(arguments, str):
-                function["arguments"] = redact(arguments)
+        _redact_tool_call_arguments(message.get("tool_calls"), redact)
     return redacted
 
 
@@ -48,9 +36,11 @@ def extract_response_text(body: dict[str, Any]) -> str:
         message = choice.get("message") or {}
         if isinstance(message, dict):
             _collect_content_text(message.get("content"), parts)
+            _collect_tool_call_arguments(message.get("tool_calls"), parts)
         delta = choice.get("delta") or {}
         if isinstance(delta, dict):
             _collect_content_text(delta.get("content"), parts)
+            _collect_tool_call_arguments(delta.get("tool_calls"), parts)
     return "\n".join(p for p in parts if p)
 
 
@@ -79,9 +69,11 @@ def redact_response_body(body: dict[str, Any], redact: Callable[[str], str]) -> 
         message = choice.get("message")
         if isinstance(message, dict):
             message["content"] = _redact_content(message.get("content"), redact)
+            _redact_tool_call_arguments(message.get("tool_calls"), redact)
         delta = choice.get("delta")
         if isinstance(delta, dict):
             delta["content"] = _redact_content(delta.get("content"), redact)
+            _redact_tool_call_arguments(delta.get("tool_calls"), redact)
     return redacted
 
 
@@ -96,12 +88,14 @@ def redact_sse_json_payload(payload: dict[str, Any], redact: Callable[[str], str
             if content_changed:
                 delta["content"] = new_content
                 changed = True
+            changed = _redact_tool_call_arguments(delta.get("tool_calls"), redact) or changed
         message = choice.get("message")
         if isinstance(message, dict):
             new_content, content_changed = _redact_content_with_flag(message.get("content"), redact)
             if content_changed:
                 message["content"] = new_content
                 changed = True
+            changed = _redact_tool_call_arguments(message.get("tool_calls"), redact) or changed
     return payload, changed
 
 
@@ -115,6 +109,20 @@ def _collect_content_text(content: Any, parts: list[str]) -> None:
                 continue
             if item.get("type") in {"text", "input_text", "output_text"} and isinstance(item.get("text"), str):
                 parts.append(item["text"])
+
+
+def _collect_tool_call_arguments(tool_calls: Any, parts: list[str]) -> None:
+    if not isinstance(tool_calls, list):
+        return
+    for tool_call in tool_calls:
+        if not isinstance(tool_call, dict):
+            continue
+        function = tool_call.get("function")
+        if not isinstance(function, dict):
+            continue
+        arguments = function.get("arguments")
+        if isinstance(arguments, str):
+            parts.append(arguments)
 
 
 def _redact_content(content: Any, redact: Callable[[str], str]) -> Any:
@@ -141,6 +149,27 @@ def _redact_content_with_flag(content: Any, redact: Callable[[str], str]) -> tup
                 new_items.append(item)
         return new_items, changed
     return content, False
+
+
+def _redact_tool_call_arguments(tool_calls: Any, redact: Callable[[str], str]) -> bool:
+    if not isinstance(tool_calls, list):
+        return False
+
+    changed = False
+    for tool_call in tool_calls:
+        if not isinstance(tool_call, dict):
+            continue
+        function = tool_call.get("function")
+        if not isinstance(function, dict):
+            continue
+        arguments = function.get("arguments")
+        if not isinstance(arguments, str):
+            continue
+        redacted = redact(arguments)
+        if redacted != arguments:
+            function["arguments"] = redacted
+            changed = True
+    return changed
 
 
 def json_dumps(data: Any) -> str:

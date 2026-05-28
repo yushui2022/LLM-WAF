@@ -135,6 +135,7 @@ Tasks:
   - replace with safe error message
 - Add audit fields for output redaction counts.
 - Add rolling-window stream scanning for cross-SSE-frame leakage. (done)
+- Add optional SSE frame hold-back for stricter cross-frame redaction. (done)
 - Improve streaming output redaction limitations documentation. (done)
 
 Exit criteria:

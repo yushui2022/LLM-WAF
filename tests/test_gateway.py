@@ -148,6 +148,33 @@ class GatewayTests(unittest.TestCase):
         self.assertTrue(any(f["rule_id"] == "out.system_prompt_leak.en" for f in second_findings))
         self.assertTrue(all(f["source"] == "stream_window" for f in second_findings))
 
+    def test_stream_hold_back_redacts_pending_cross_frame_output(self):
+        state = main_module.StreamScanState(window_chars=128)
+        hold_back = main_module.StreamHoldBackBuffer(frame_count=1)
+
+        first = 'data: {"choices":[{"delta":{"content":"My system "}}]}'
+        second = 'data: {"choices":[{"delta":{"content":"prompt is: hidden policy."}}]}'
+
+        transformed, _, findings, _ = main_module._transform_sse_frame(first, stream_scan_state=state)
+        self.assertEqual(
+            hold_back.add(
+                transformed + "\n\n",
+                redact_pending=main_module._has_stream_window_finding(findings),
+            ),
+            [],
+        )
+
+        transformed, _, findings, _ = main_module._transform_sse_frame(second, stream_scan_state=state)
+        emitted = hold_back.add(
+            transformed + "\n\n",
+            redact_pending=main_module._has_stream_window_finding(findings),
+        )
+        output = "".join(emitted + hold_back.flush())
+
+        self.assertNotIn("My system ", output)
+        self.assertIn("[REDACTED:stream_hold_back]", output)
+        self.assertIn("[REDACTED:stream_window]", output)
+
     def test_finding_fields_include_summary(self):
         fields = main_module._finding_fields(
             [

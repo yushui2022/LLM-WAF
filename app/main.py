@@ -403,6 +403,7 @@ async def _proxy_streaming(
     output_usage: dict[str, int] = {}
     content_type = upstream.headers.get("content-type", "text/event-stream")
     stream_scan_state = StreamScanState(window_chars=settings.stream_scan_window_chars)
+    stream_hold_back = StreamHoldBackBuffer(frame_count=settings.stream_hold_back_frames)
     stream_scanner_error = ""
 
     async def generate():
@@ -436,7 +437,15 @@ async def _proxy_streaming(
                     output_findings.extend(frame_findings)
                     if frame_usage:
                         output_usage.update(frame_usage)
-                    yield transformed + "\n\n"
+                    frame_record = transformed + "\n\n"
+                    if stream_hold_back.enabled:
+                        for ready_frame in stream_hold_back.add(
+                            frame_record,
+                            redact_pending=_has_stream_window_finding(frame_findings),
+                        ):
+                            yield ready_frame
+                    else:
+                        yield frame_record
             tail = buffer + decoder.decode(b"", final=True)
             if tail:
                 try:
@@ -458,7 +467,17 @@ async def _proxy_streaming(
                 output_findings.extend(frame_findings)
                 if frame_usage:
                     output_usage.update(frame_usage)
-                yield transformed
+                if stream_hold_back.enabled:
+                    for ready_frame in stream_hold_back.add(
+                        transformed,
+                        redact_pending=_has_stream_window_finding(frame_findings),
+                    ):
+                        yield ready_frame
+                else:
+                    yield transformed
+            if stream_hold_back.enabled:
+                for ready_frame in stream_hold_back.flush():
+                    yield ready_frame
         finally:
             await upstream.aclose()
             await client.aclose()
@@ -580,6 +599,66 @@ class StreamScanState:
             finding["source"] = "stream_window"
             findings.append(finding)
         return findings[:5]
+
+
+@dataclass
+class StreamHoldBackBuffer:
+    frame_count: int = 0
+    pending: list[str] = field(default_factory=list)
+
+    @property
+    def enabled(self) -> bool:
+        return self.frame_count > 0
+
+    def add(self, frame: str, redact_pending: bool = False) -> list[str]:
+        if not self.enabled:
+            return [frame]
+        if redact_pending and self.pending:
+            self.pending = [_redact_sse_frame_text(item, "[REDACTED:stream_hold_back]") for item in self.pending]
+        self.pending.append(frame)
+
+        ready: list[str] = []
+        while len(self.pending) > self.frame_count:
+            ready.append(self.pending.pop(0))
+        return ready
+
+    def flush(self) -> list[str]:
+        ready = self.pending
+        self.pending = []
+        return ready
+
+
+def _has_stream_window_finding(findings: list[dict[str, Any]]) -> bool:
+    return any(finding.get("source") == "stream_window" for finding in findings)
+
+
+def _redact_sse_frame_text(frame: str, replacement: str) -> str:
+    suffix = "\n\n" if frame.endswith("\n\n") else ""
+    body = frame[:-2] if suffix else frame
+    transformed, _, _, _ = _transform_sse_frame(
+        body,
+        redact_outputs=True,
+        stream_scan_state=None,
+    )
+
+    # Force redaction of held text even when the held fragment was not risky on its own.
+    out_lines: list[str] = []
+    for line in transformed.splitlines():
+        if not line.startswith("data:"):
+            out_lines.append(line)
+            continue
+        data = line[5:].strip()
+        if not data or data == "[DONE]":
+            out_lines.append(line)
+            continue
+        try:
+            payload = json.loads(data)
+        except json.JSONDecodeError:
+            out_lines.append(line)
+            continue
+        payload, _ = redact_sse_json_payload(payload, lambda text: replacement if text else text)
+        out_lines.append("data: " + json_dumps(payload))
+    return "\n".join(out_lines) + suffix
 
 
 def _upstream_url(request_path: str) -> str:

@@ -48,7 +48,7 @@ Most "LLM firewalls" make you rewrite your agent, break SSE streaming, or ship y
 
 Being upfront so you know what you're getting:
 
-- Streaming output scanning uses a bounded rolling window. It can detect patterns that straddle nearby SSE frames, but previously emitted bytes cannot be rewritten.
+- Streaming output scanning uses a bounded rolling window. It can detect patterns that straddle nearby SSE frames, but previously emitted bytes cannot be rewritten. Set `STREAM_HOLD_BACK_FRAMES=1` or higher when you prefer stronger leak control over lowest first-token latency.
 - Rate limiting defaults to local memory. Use `RATE_LIMIT_BACKEND=redis` for multi-replica deployments.
 - Anthropic / Gemini **native** protocols are not supported (use their OpenAI-compatible endpoints).
 - Chinese prompt-injection rule set is still early; keep adding real attack samples and benign hard negatives before trusting recall claims.
@@ -352,6 +352,7 @@ Audit events include:
 | `SCAN_OUTPUTS` | `true` | Scan responses (streaming and non-streaming). |
 | `REDACT_OUTPUTS` | `true` | Redact sensitive content detected in responses. |
 | `STREAM_SCAN_WINDOW_CHARS` | `4096` | Rolling character window used to detect output findings that straddle SSE frames. Set `0` to disable rolling-window stream scanning. |
+| `STREAM_HOLD_BACK_FRAMES` | `0` | Optional SSE frame hold-back. When greater than `0`, the gateway delays that many frames and can redact held fragments if a later frame completes a cross-frame finding. |
 | `SEMANTIC_SCANNER_URL` | empty | Optional HTTP scanner endpoint for semantic/model-based findings. Empty disables the hook. |
 | `SEMANTIC_SCANNER_TIMEOUT_SECONDS` | `2.0` | Timeout for the optional semantic scanner. |
 | `BLOCKED_STATUS_CODE` | `403` | HTTP status returned when a request is blocked. |
@@ -464,7 +465,7 @@ flowchart TB
     PA --> AUD
 ```
 
-Streaming responses are proxied as Server-Sent Events. Output scanning in streaming mode is chunk-local so first-token latency stays low.
+Streaming responses are proxied as Server-Sent Events. Output scanning uses a rolling window so findings can span nearby frames. By default frames are forwarded immediately for low latency; set `STREAM_HOLD_BACK_FRAMES` to a small value, such as `1` or `2`, if you need the gateway to delay and redact held fragments when a later frame completes a finding.
 
 ## Local development
 

@@ -72,6 +72,7 @@ class Settings:
     redact_outputs: bool = _env_bool("REDACT_OUTPUTS", True)
     scan_outputs: bool = _env_bool("SCAN_OUTPUTS", True)
     stream_scan_window_chars: int = _env_int("STREAM_SCAN_WINDOW_CHARS", 4096)
+    stream_hold_back_frames: int = _env_int("STREAM_HOLD_BACK_FRAMES", 0)
     semantic_scanner_url: str = os.getenv("SEMANTIC_SCANNER_URL", "")
     semantic_scanner_timeout_seconds: float = _env_float("SEMANTIC_SCANNER_TIMEOUT_SECONDS", 2.0)
     blocked_status_code: int = _env_int("BLOCKED_STATUS_CODE", 403)

@@ -47,7 +47,7 @@ Most "LLM firewalls" make you rewrite your agent, break SSE streaming, or ship y
 
 Being upfront so you know what you're getting:
 
-- Streaming output scanning is **chunk-local** — patterns that straddle multiple SSE frames may not be caught.
+- Streaming output scanning uses a bounded rolling window. It can detect patterns that straddle nearby SSE frames, but previously emitted bytes cannot be rewritten.
 - Rate limiting is in-memory only in the MVP; use Redis or a reverse proxy for multi-replica deployments.
 - Anthropic / Gemini **native** protocols are not supported (use their OpenAI-compatible endpoints).
 - Chinese prompt-injection rule set is intentionally small in v0.1; community PRs welcome.
@@ -314,6 +314,7 @@ Audit events include:
 | `REDACT_INPUTS` | `true` | Redact PII / secrets before forwarding. |
 | `SCAN_OUTPUTS` | `true` | Scan responses (streaming and non-streaming). |
 | `REDACT_OUTPUTS` | `true` | Redact sensitive content detected in responses. |
+| `STREAM_SCAN_WINDOW_CHARS` | `4096` | Rolling character window used to detect output findings that straddle SSE frames. Set `0` to disable rolling-window stream scanning. |
 | `BLOCKED_STATUS_CODE` | `403` | HTTP status returned when a request is blocked. |
 | `FAIL_CLOSED` | `false` | Placeholder for scanner-backend failure policy (no-op in v0.1). |
 | `AUDIT_LOG_PATH` | `var/audit/events.jsonl` | JSONL audit log path. |

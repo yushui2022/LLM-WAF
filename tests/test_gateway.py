@@ -126,6 +126,27 @@ class GatewayTests(unittest.TestCase):
         self.assertEqual(findings, [])
         self.assertEqual(usage, {})
 
+    def test_stream_frame_transform_detects_cross_frame_output_leak(self):
+        state = main_module.StreamScanState(window_chars=128)
+        first = 'data: {"choices":[{"delta":{"content":"My system "}}]}'
+        second = 'data: {"choices":[{"delta":{"content":"prompt is: hidden policy."}}]}'
+
+        _, first_changed, first_findings, _ = main_module._transform_sse_frame(
+            first,
+            stream_scan_state=state,
+        )
+        transformed, second_changed, second_findings, _ = main_module._transform_sse_frame(
+            second,
+            stream_scan_state=state,
+        )
+
+        self.assertFalse(first_changed)
+        self.assertEqual(first_findings, [])
+        self.assertTrue(second_changed)
+        self.assertIn("[REDACTED:stream_window]", transformed)
+        self.assertTrue(any(f["rule_id"] == "out.system_prompt_leak.en" for f in second_findings))
+        self.assertTrue(all(f["source"] == "stream_window" for f in second_findings))
+
     def test_finding_fields_include_summary(self):
         fields = main_module._finding_fields(
             [

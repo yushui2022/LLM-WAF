@@ -69,6 +69,7 @@ class Settings:
     redact_inputs: bool = _env_bool("REDACT_INPUTS", True)
     redact_outputs: bool = _env_bool("REDACT_OUTPUTS", True)
     scan_outputs: bool = _env_bool("SCAN_OUTPUTS", True)
+    stream_scan_window_chars: int = _env_int("STREAM_SCAN_WINDOW_CHARS", 4096)
     blocked_status_code: int = _env_int("BLOCKED_STATUS_CODE", 403)
 
     audit_log_path: Path = Path(os.getenv("AUDIT_LOG_PATH", "var/audit/events.jsonl"))

@@ -133,7 +133,8 @@ Tasks:
   - block entire response
   - replace with safe error message
 - Add audit fields for output redaction counts.
-- Improve streaming output redaction limitations documentation.
+- Add rolling-window stream scanning for cross-SSE-frame leakage. (done)
+- Improve streaming output redaction limitations documentation. (done)
 
 Exit criteria:
 

@@ -12,6 +12,7 @@ import json
 import time
 import uuid
 from collections import Counter
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
@@ -375,6 +376,7 @@ async def _proxy_streaming(
     output_redacted = False
     output_usage: dict[str, int] = {}
     content_type = upstream.headers.get("content-type", "text/event-stream")
+    stream_scan_state = StreamScanState(window_chars=settings.stream_scan_window_chars)
 
     async def generate():
         nonlocal output_redacted
@@ -393,6 +395,7 @@ async def _proxy_streaming(
                         redact_outputs=policy.redact_outputs,
                         disabled_rule_ids=policy.disabled_rules,
                         disabled_categories=policy.disabled_categories,
+                        stream_scan_state=stream_scan_state,
                     )
                     output_redacted = output_redacted or changed
                     output_findings.extend(frame_findings)
@@ -406,6 +409,7 @@ async def _proxy_streaming(
                     redact_outputs=policy.redact_outputs,
                     disabled_rule_ids=policy.disabled_rules,
                     disabled_categories=policy.disabled_categories,
+                    stream_scan_state=stream_scan_state,
                 )
                 output_redacted = output_redacted or changed
                 output_findings.extend(frame_findings)
@@ -447,6 +451,7 @@ def _transform_sse_frame(
     redact_outputs: bool = True,
     disabled_rule_ids: tuple[str, ...] = (),
     disabled_categories: tuple[str, ...] = (),
+    stream_scan_state: "StreamScanState | None" = None,
 ) -> tuple[str, bool, list[dict[str, Any]], dict[str, int]]:
     changed = False
     findings: list[dict[str, Any]] = []
@@ -472,9 +477,14 @@ def _transform_sse_frame(
             usage.update(frame_usage)
 
         output_text = extract_response_text(payload)
+        frame_findings: list[dict[str, Any]] = []
         if output_text:
-            scan = scanner.scan_output(output_text, disabled_rule_ids, disabled_categories)
-            findings.extend(scan.to_audit_findings(limit=5))
+            if stream_scan_state is not None and stream_scan_state.enabled:
+                frame_findings = stream_scan_state.scan(output_text, disabled_rule_ids, disabled_categories)
+            else:
+                scan = scanner.scan_output(output_text, disabled_rule_ids, disabled_categories)
+                frame_findings = scan.to_audit_findings(limit=5)
+            findings.extend(frame_findings)
 
         payload_changed = False
         if redact_outputs:
@@ -482,10 +492,49 @@ def _transform_sse_frame(
                 payload,
                 lambda text: scanner.redact_output(text, disabled_rule_ids, disabled_categories),
             )
+            if frame_findings and not payload_changed and stream_scan_state is not None and stream_scan_state.enabled:
+                payload, payload_changed = redact_sse_json_payload(
+                    payload,
+                    lambda text: "[REDACTED:stream_window]" if text else text,
+                )
             changed = changed or payload_changed
         out_lines.append("data: " + json_dumps(payload))
 
     return "\n".join(out_lines), changed, findings, usage
+
+
+@dataclass
+class StreamScanState:
+    window_chars: int = 4096
+    window: str = ""
+    seen_findings: set[tuple[str, str]] = field(default_factory=set)
+
+    @property
+    def enabled(self) -> bool:
+        return self.window_chars > 0
+
+    def scan(
+        self,
+        text: str,
+        disabled_rule_ids: tuple[str, ...] = (),
+        disabled_categories: tuple[str, ...] = (),
+    ) -> list[dict[str, Any]]:
+        if not text or not self.enabled:
+            return []
+
+        combined = self.window + text
+        scan = scanner.scan_output(combined, disabled_rule_ids, disabled_categories)
+        self.window = combined[-self.window_chars :]
+
+        findings: list[dict[str, Any]] = []
+        for finding in scan.to_audit_findings(limit=10):
+            key = (str(finding.get("rule_id", "")), str(finding.get("evidence", "")))
+            if key in self.seen_findings:
+                continue
+            self.seen_findings.add(key)
+            finding["source"] = "stream_window"
+            findings.append(finding)
+        return findings[:5]
 
 
 def _upstream_url(request_path: str) -> str:

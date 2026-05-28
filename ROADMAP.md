@@ -80,7 +80,7 @@ Tasks:
   - zero-width characters
   - mixed Chinese/English text
 - Add output-side eval set for leakage detection. (done)
-- Add CI workflow for unit tests and scanner eval.
+- Add CI workflow for unit tests and scanner eval. (done)
 - Document false-positive reporting format.
 - Add audit-to-eval candidate extraction for reviewed rule updates. (done)
 

@@ -51,7 +51,7 @@ Being upfront so you know what you're getting:
 - Rate limiting is in-memory only in the MVP; use Redis or a reverse proxy for multi-replica deployments.
 - Anthropic / Gemini **native** protocols are not supported (use their OpenAI-compatible endpoints).
 - Chinese prompt-injection rule set is still early; keep adding real attack samples and benign hard negatives before trusting recall claims.
-- `FAIL_CLOSED` is configurable but currently a no-op placeholder for scanner-backend failure handling in a future release.
+- In streaming mode, `FAIL_CLOSED=true` can terminate the SSE stream with an error event after headers have already been sent.
 
 ## Quick start
 
@@ -316,7 +316,7 @@ Audit events include:
 | `REDACT_OUTPUTS` | `true` | Redact sensitive content detected in responses. |
 | `STREAM_SCAN_WINDOW_CHARS` | `4096` | Rolling character window used to detect output findings that straddle SSE frames. Set `0` to disable rolling-window stream scanning. |
 | `BLOCKED_STATUS_CODE` | `403` | HTTP status returned when a request is blocked. |
-| `FAIL_CLOSED` | `false` | Placeholder for scanner-backend failure policy (no-op in v0.1). |
+| `FAIL_CLOSED` | `false` | If scanner execution fails, block input requests and suppress buffered outputs instead of failing open. Streaming outputs terminate with an SSE error event. |
 | `AUDIT_LOG_PATH` | `var/audit/events.jsonl` | JSONL audit log path. |
 | `DASHBOARD_LIMIT` | `50` | Number of recent events shown in `/dashboard`. |
 

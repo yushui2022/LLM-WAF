@@ -27,6 +27,7 @@ from app.config import settings
 from app.dashboard import render_dashboard
 from app.policy import PolicyStore, RoutePolicy
 from app.pricing import PricingStore
+from app.security.models import ScanResult
 from app.security.payload import (
     extract_request_text,
     extract_response_text,
@@ -146,15 +147,20 @@ async def chat_completions(request: Request) -> Response:
     stream = bool(body.get("stream"))
     model = str(body.get("model", ""))
     request_text = extract_request_text(body)
+    event = _base_event(trace_id, request, started, model=model, stream=stream, auth=auth, policy=policy, rate_limit=rate_limit)
+    event["prompt_sha256"] = _sha256(request_text)
+
     input_scan = (
-        scanner.scan_input(request_text, policy.disabled_rules, policy.disabled_categories)
+        _scan_input_safely(request_text, policy, event)
         if policy.input_scanning
         else None
     )
-    findings = input_scan.to_audit_findings() if input_scan else []
+    if input_scan is None and event.get("reason") == "scanner_failure" and settings.fail_closed:
+        event.update({"decision": "blocked", "status_code": 503, **_finding_fields([])})
+        _audit(event, policy)
+        return _error_response(trace_id, 503, "scanner_failure", "Input scanner failed and FAIL_CLOSED is enabled.")
 
-    event = _base_event(trace_id, request, started, model=model, stream=stream, auth=auth, policy=policy, rate_limit=rate_limit)
-    event["prompt_sha256"] = _sha256(request_text)
+    findings = input_scan.to_audit_findings() if input_scan else []
 
     if input_scan and input_scan.blocked and policy.block_prompt_injection:
         event.update(
@@ -293,7 +299,21 @@ async def _proxy_buffered(
             usage = extract_usage(response_body)
             if policy.output_scanning:
                 output_text = extract_response_text(response_body)
-                output_scan = scanner.scan_output(output_text, policy.disabled_rules, policy.disabled_categories)
+                output_scan = _scan_output_safely(output_text, policy, event)
+                if output_scan is None and settings.fail_closed:
+                    event.update(
+                        {
+                            "decision": "blocked",
+                            "status_code": 503,
+                            "upstream_status": upstream.status_code,
+                            "latency_ms": _elapsed_ms(started),
+                            **_finding_fields(input_findings),
+                        }
+                    )
+                    _audit(event, policy)
+                    return _error_response(trace_id, 503, "scanner_failure", "Output scanner failed and FAIL_CLOSED is enabled.")
+                if output_scan is None:
+                    output_scan = ScanResult()
                 output_findings = output_scan.to_audit_findings()
                 output_redacted = bool(output_scan.redacted and policy.redact_outputs)
                 if output_redacted:
@@ -377,9 +397,10 @@ async def _proxy_streaming(
     output_usage: dict[str, int] = {}
     content_type = upstream.headers.get("content-type", "text/event-stream")
     stream_scan_state = StreamScanState(window_chars=settings.stream_scan_window_chars)
+    stream_scanner_error = ""
 
     async def generate():
-        nonlocal output_redacted
+        nonlocal output_redacted, stream_scanner_error
         decoder = codecs.getincrementaldecoder("utf-8")()
         buffer = ""
         try:
@@ -390,13 +411,21 @@ async def _proxy_streaming(
                 buffer += decoder.decode(chunk)
                 while "\n\n" in buffer:
                     frame, buffer = buffer.split("\n\n", 1)
-                    transformed, changed, frame_findings, frame_usage = _transform_sse_frame(
-                        frame,
-                        redact_outputs=policy.redact_outputs,
-                        disabled_rule_ids=policy.disabled_rules,
-                        disabled_categories=policy.disabled_categories,
-                        stream_scan_state=stream_scan_state,
-                    )
+                    try:
+                        transformed, changed, frame_findings, frame_usage = _transform_sse_frame(
+                            frame,
+                            redact_outputs=policy.redact_outputs,
+                            disabled_rule_ids=policy.disabled_rules,
+                            disabled_categories=policy.disabled_categories,
+                            stream_scan_state=stream_scan_state,
+                        )
+                    except Exception as exc:
+                        stream_scanner_error = _record_scanner_error(event, exc)
+                        if settings.fail_closed:
+                            yield _sse_error_frame(trace_id, "scanner_failure", "Output scanner failed and FAIL_CLOSED is enabled.")
+                            return
+                        yield frame + "\n\n"
+                        continue
                     output_redacted = output_redacted or changed
                     output_findings.extend(frame_findings)
                     if frame_usage:
@@ -404,13 +433,21 @@ async def _proxy_streaming(
                     yield transformed + "\n\n"
             tail = buffer + decoder.decode(b"", final=True)
             if tail:
-                transformed, changed, frame_findings, frame_usage = _transform_sse_frame(
-                    tail,
-                    redact_outputs=policy.redact_outputs,
-                    disabled_rule_ids=policy.disabled_rules,
-                    disabled_categories=policy.disabled_categories,
-                    stream_scan_state=stream_scan_state,
-                )
+                try:
+                    transformed, changed, frame_findings, frame_usage = _transform_sse_frame(
+                        tail,
+                        redact_outputs=policy.redact_outputs,
+                        disabled_rule_ids=policy.disabled_rules,
+                        disabled_categories=policy.disabled_categories,
+                        stream_scan_state=stream_scan_state,
+                    )
+                except Exception as exc:
+                    stream_scanner_error = _record_scanner_error(event, exc)
+                    if settings.fail_closed:
+                        yield _sse_error_frame(trace_id, "scanner_failure", "Output scanner failed and FAIL_CLOSED is enabled.")
+                        return
+                    yield tail
+                    return
                 output_redacted = output_redacted or changed
                 output_findings.extend(frame_findings)
                 if frame_usage:
@@ -420,17 +457,19 @@ async def _proxy_streaming(
             await upstream.aclose()
             await client.aclose()
             findings = input_findings + output_findings[:20]
-            event.update(
-                {
-                    "decision": _decision(blocked=False, redacted=input_redacted or output_redacted),
-                    "status_code": upstream.status_code,
-                    "upstream_status": upstream.status_code,
-                    "latency_ms": _elapsed_ms(started),
-                    **_finding_fields(findings),
-                    "input_redacted": input_redacted,
-                    "output_redacted": output_redacted,
-                }
-            )
+            stream_failed_closed = bool(stream_scanner_error and settings.fail_closed)
+            stream_event = {
+                "decision": "error" if stream_failed_closed else _decision(blocked=False, redacted=input_redacted or output_redacted),
+                "status_code": 503 if stream_failed_closed else upstream.status_code,
+                "upstream_status": upstream.status_code,
+                "latency_ms": _elapsed_ms(started),
+                **_finding_fields(findings),
+                "input_redacted": input_redacted,
+                "output_redacted": output_redacted,
+            }
+            if stream_failed_closed:
+                stream_event["reason"] = "scanner_failure"
+            event.update(stream_event)
             if output_usage:
                 event["usage"] = output_usage
                 cost = pricing_store.estimate(str(event.get("model", "")), output_usage)
@@ -599,6 +638,18 @@ def _error_response(
     return JSONResponse(body, status_code=status_code, headers=headers)
 
 
+def _sse_error_frame(trace_id: str, code: str, message: str) -> str:
+    payload = {
+        "error": {
+            "message": f"[LLM-WAF] {message}",
+            "type": code,
+            "code": code,
+            "trace_id": trace_id,
+        }
+    }
+    return "event: error\ndata: " + json_dumps(payload) + "\n\n"
+
+
 def _base_event(
     trace_id: str,
     request: Request,
@@ -634,6 +685,30 @@ def _base_event(
 def _audit(event: dict[str, Any], policy: RoutePolicy) -> None:
     if policy.audit:
         audit_log.append(event)
+
+
+def _scan_input_safely(text: str, policy: RoutePolicy, event: dict[str, Any]) -> ScanResult | None:
+    try:
+        return scanner.scan_input(text, policy.disabled_rules, policy.disabled_categories)
+    except Exception as exc:
+        _record_scanner_error(event, exc)
+        return None
+
+
+def _scan_output_safely(text: str, policy: RoutePolicy, event: dict[str, Any]) -> ScanResult | None:
+    try:
+        return scanner.scan_output(text, policy.disabled_rules, policy.disabled_categories)
+    except Exception as exc:
+        _record_scanner_error(event, exc)
+        return None
+
+
+def _record_scanner_error(event: dict[str, Any], exc: Exception) -> str:
+    error = exc.__class__.__name__
+    event["reason"] = "scanner_failure"
+    event["scanner_error"] = error
+    event["fail_closed"] = settings.fail_closed
+    return error
 
 
 def _finding_fields(findings: list[dict[str, Any]]) -> dict[str, Any]:

@@ -169,6 +169,26 @@ class GatewayTests(unittest.TestCase):
         self.assertEqual(fields["finding_summary"]["by_action"]["redact"], 1)
         self.assertEqual(fields["finding_summary"]["max_severity"], "critical")
 
+    def test_fail_closed_blocks_when_input_scanner_fails(self):
+        class FailingScanner:
+            def scan_input(self, *args, **kwargs):
+                raise RuntimeError("scanner down")
+
+        original_scanner = main_module.scanner
+        original_fail_closed = main_module.settings.fail_closed
+        try:
+            main_module.scanner = FailingScanner()
+            object.__setattr__(main_module.settings, "fail_closed", True)
+            response = self.client.post(
+                "/v1/chat/completions",
+                json={"model": "test-model", "messages": [{"role": "user", "content": "hello"}]},
+            )
+            self.assertEqual(response.status_code, 503)
+            self.assertEqual(response.json()["error"]["code"], "scanner_failure")
+        finally:
+            main_module.scanner = original_scanner
+            object.__setattr__(main_module.settings, "fail_closed", original_fail_closed)
+
 
 if __name__ == "__main__":
     unittest.main()

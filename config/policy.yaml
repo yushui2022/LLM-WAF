@@ -11,6 +11,8 @@ default:
   block_prompt_injection: true
   audit: true
   blocked_status_code: 403
+  disabled_rules: []
+  disabled_categories: []
 
 routes:
   - name: chat_completions
@@ -21,6 +23,8 @@ routes:
     redact_outputs: true
     block_prompt_injection: true
     blocked_status_code: 403
+    disabled_rules: []
+    disabled_categories: []
 
   - name: metadata_passthrough
     path: /v1/models

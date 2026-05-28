@@ -14,9 +14,12 @@ class Finding:
     source: str
     evidence: str
     description: str
+    tags: tuple[str, ...] = ()
+    references: tuple[str, ...] = ()
+    recommended_remediation: str = ""
 
     def to_audit_dict(self) -> dict:
-        return {
+        data = {
             "rule_id": self.rule_id,
             "category": self.category,
             "severity": self.severity,
@@ -25,6 +28,13 @@ class Finding:
             "evidence": self.evidence,
             "description": self.description,
         }
+        if self.tags:
+            data["tags"] = list(self.tags)
+        if self.references:
+            data["references"] = list(self.references)
+        if self.recommended_remediation:
+            data["recommended_remediation"] = self.recommended_remediation
+        return data
 
 
 @dataclass
@@ -49,4 +59,3 @@ class ScanResult:
 
     def to_audit_findings(self, limit: int = 20) -> list[dict]:
         return [f.to_audit_dict() for f in self.findings[:limit]]
-

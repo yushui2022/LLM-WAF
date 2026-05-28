@@ -115,6 +115,17 @@ class GatewayTests(unittest.TestCase):
         self.assertEqual(findings, [])
         self.assertEqual(usage["total_tokens"], 5)
 
+    def test_stream_frame_transform_honors_disabled_rules(self):
+        frame = 'data: {"choices":[{"delta":{"content":"My system prompt is: hidden policy."}}]}'
+        transformed, changed, findings, usage = main_module._transform_sse_frame(
+            frame,
+            disabled_rule_ids=("out.system_prompt_leak.en",),
+        )
+        self.assertIn("My system prompt is", transformed)
+        self.assertFalse(changed)
+        self.assertEqual(findings, [])
+        self.assertEqual(usage, {})
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -19,10 +19,19 @@ class Rule:
     pattern: str
     description: str
     replacement: str | None = None
+    tags: tuple[str, ...] = ()
+    references: tuple[str, ...] = ()
+    recommended_remediation: str = ""
 
     @property
     def regex(self) -> re.Pattern[str]:
         return re.compile(self.pattern, re.IGNORECASE | re.DOTALL)
+
+    @property
+    def effective_tags(self) -> tuple[str, ...]:
+        if self.tags:
+            return self.tags
+        return (self.category, self.severity, self.action)
 
 
 INPUT_RULES: tuple[Rule, ...] = (

@@ -139,7 +139,11 @@ async def chat_completions(request: Request) -> Response:
     stream = bool(body.get("stream"))
     model = str(body.get("model", ""))
     request_text = extract_request_text(body)
-    input_scan = scanner.scan_input(request_text) if policy.input_scanning else None
+    input_scan = (
+        scanner.scan_input(request_text, policy.disabled_rules, policy.disabled_categories)
+        if policy.input_scanning
+        else None
+    )
     findings = input_scan.to_audit_findings() if input_scan else []
 
     event = _base_event(trace_id, request, started, model=model, stream=stream, auth=auth, policy=policy, rate_limit=rate_limit)
@@ -160,7 +164,10 @@ async def chat_completions(request: Request) -> Response:
     forwarded_body = body
     input_redacted = bool(input_scan and input_scan.redacted and policy.redact_inputs)
     if input_redacted:
-        forwarded_body = redact_request_body(body, scanner.redact_sensitive)
+        forwarded_body = redact_request_body(
+            body,
+            lambda text: scanner.redact_sensitive(text, policy.disabled_rules, policy.disabled_categories),
+        )
 
     if stream:
         return await _proxy_streaming(request, trace_id, started, forwarded_body, event, findings, input_redacted, auth, policy)
@@ -282,11 +289,14 @@ async def _proxy_buffered(
             usage = extract_usage(response_body)
             if policy.output_scanning:
                 output_text = extract_response_text(response_body)
-                output_scan = scanner.scan_output(output_text)
+                output_scan = scanner.scan_output(output_text, policy.disabled_rules, policy.disabled_categories)
                 output_findings = output_scan.to_audit_findings()
                 output_redacted = bool(output_scan.redacted and policy.redact_outputs)
                 if output_redacted:
-                    response_body = redact_response_body(response_body, scanner.redact_output)
+                    response_body = redact_response_body(
+                        response_body,
+                        lambda text: scanner.redact_output(text, policy.disabled_rules, policy.disabled_categories),
+                    )
                     content = json_dumps(response_body).encode("utf-8")
                     response_headers.pop("content-length", None)
         except (ValueError, TypeError):
@@ -380,6 +390,8 @@ async def _proxy_streaming(
                     transformed, changed, frame_findings, frame_usage = _transform_sse_frame(
                         frame,
                         redact_outputs=policy.redact_outputs,
+                        disabled_rule_ids=policy.disabled_rules,
+                        disabled_categories=policy.disabled_categories,
                     )
                     output_redacted = output_redacted or changed
                     output_findings.extend(frame_findings)
@@ -391,6 +403,8 @@ async def _proxy_streaming(
                 transformed, changed, frame_findings, frame_usage = _transform_sse_frame(
                     tail,
                     redact_outputs=policy.redact_outputs,
+                    disabled_rule_ids=policy.disabled_rules,
+                    disabled_categories=policy.disabled_categories,
                 )
                 output_redacted = output_redacted or changed
                 output_findings.extend(frame_findings)
@@ -431,6 +445,8 @@ async def _proxy_streaming(
 def _transform_sse_frame(
     frame: str,
     redact_outputs: bool = True,
+    disabled_rule_ids: tuple[str, ...] = (),
+    disabled_categories: tuple[str, ...] = (),
 ) -> tuple[str, bool, list[dict[str, Any]], dict[str, int]]:
     changed = False
     findings: list[dict[str, Any]] = []
@@ -457,12 +473,15 @@ def _transform_sse_frame(
 
         output_text = extract_response_text(payload)
         if output_text:
-            scan = scanner.scan_output(output_text)
+            scan = scanner.scan_output(output_text, disabled_rule_ids, disabled_categories)
             findings.extend(scan.to_audit_findings(limit=5))
 
         payload_changed = False
         if redact_outputs:
-            payload, payload_changed = redact_sse_json_payload(payload, scanner.redact_output)
+            payload, payload_changed = redact_sse_json_payload(
+                payload,
+                lambda text: scanner.redact_output(text, disabled_rule_ids, disabled_categories),
+            )
             changed = changed or payload_changed
         out_lines.append("data: " + json_dumps(payload))
 

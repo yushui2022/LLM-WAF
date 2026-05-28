@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
+from collections.abc import Collection
 
 from app.security.models import Finding, ScanResult
 from app.security.normalizer import text_variants
@@ -36,51 +36,112 @@ class SecurityScanner:
     - output leak heuristics that redact.
     """
 
-    def scan_input(self, text: str) -> ScanResult:
+    def scan_input(
+        self,
+        text: str,
+        disabled_rule_ids: Collection[str] | None = None,
+        disabled_categories: Collection[str] | None = None,
+    ) -> ScanResult:
+        disabled_rule_ids = frozenset(disabled_rule_ids or ())
+        disabled_categories = frozenset(disabled_categories or ())
         findings: list[Finding] = []
-        findings.extend(self._scan_static_rules(text, INPUT_RULES))
-        findings.extend(self._scan_sensitive(text))
+        findings.extend(self._scan_static_rules(text, INPUT_RULES, disabled_rule_ids, disabled_categories))
+        findings.extend(self._scan_sensitive(text, disabled_rule_ids, disabled_categories))
 
-        redacted = self.redact_sensitive(text)
+        redacted = self.redact_sensitive(text, disabled_rule_ids, disabled_categories)
         return ScanResult(
             findings=self._dedupe(findings),
             redacted_text=redacted if redacted != text else None,
         )
 
-    def scan_output(self, text: str) -> ScanResult:
+    def scan_output(
+        self,
+        text: str,
+        disabled_rule_ids: Collection[str] | None = None,
+        disabled_categories: Collection[str] | None = None,
+    ) -> ScanResult:
+        disabled_rule_ids = frozenset(disabled_rule_ids or ())
+        disabled_categories = frozenset(disabled_categories or ())
         findings: list[Finding] = []
-        findings.extend(self._scan_sensitive(text))
-        findings.extend(self._scan_direct(text, OUTPUT_RULES, source="output"))
+        findings.extend(self._scan_sensitive(text, disabled_rule_ids, disabled_categories))
+        findings.extend(
+            self._scan_direct(
+                text,
+                OUTPUT_RULES,
+                source="output",
+                disabled_rule_ids=disabled_rule_ids,
+                disabled_categories=disabled_categories,
+            )
+        )
 
-        redacted = self.redact_output(text)
+        redacted = self.redact_output(text, disabled_rule_ids, disabled_categories)
         return ScanResult(
             findings=self._dedupe(findings),
             redacted_text=redacted if redacted != text else None,
         )
 
-    def redact_sensitive(self, text: str) -> str:
+    def redact_sensitive(
+        self,
+        text: str,
+        disabled_rule_ids: Collection[str] | None = None,
+        disabled_categories: Collection[str] | None = None,
+    ) -> str:
+        disabled_rule_ids = frozenset(disabled_rule_ids or ())
+        disabled_categories = frozenset(disabled_categories or ())
         redacted = text
         for rule in SENSITIVE_RULES:
+            if not _rule_enabled(rule, disabled_rule_ids, disabled_categories):
+                continue
             redacted = rule.regex.sub(rule.replacement or "[REDACTED]", redacted)
         return redacted
 
-    def redact_output(self, text: str) -> str:
-        redacted = self.redact_sensitive(text)
+    def redact_output(
+        self,
+        text: str,
+        disabled_rule_ids: Collection[str] | None = None,
+        disabled_categories: Collection[str] | None = None,
+    ) -> str:
+        disabled_rule_ids = frozenset(disabled_rule_ids or ())
+        disabled_categories = frozenset(disabled_categories or ())
+        redacted = self.redact_sensitive(text, disabled_rule_ids, disabled_categories)
         for rule in OUTPUT_RULES:
+            if not _rule_enabled(rule, disabled_rule_ids, disabled_categories):
+                continue
             redacted = rule.regex.sub(rule.replacement or "[REDACTED]", redacted)
         return redacted
 
-    def _scan_static_rules(self, text: str, rules: tuple[Rule, ...]) -> list[Finding]:
+    def _scan_static_rules(
+        self,
+        text: str,
+        rules: tuple[Rule, ...],
+        disabled_rule_ids: Collection[str],
+        disabled_categories: Collection[str],
+    ) -> list[Finding]:
         findings: list[Finding] = []
         for variant in text_variants(text):
-            findings.extend(self._scan_direct(variant.text, rules, source=variant.source))
+            findings.extend(
+                self._scan_direct(
+                    variant.text,
+                    rules,
+                    source=variant.source,
+                    disabled_rule_ids=disabled_rule_ids,
+                    disabled_categories=disabled_categories,
+                )
+            )
             if len(findings) >= MAX_FINDINGS:
                 break
         return findings
 
-    def _scan_sensitive(self, text: str) -> list[Finding]:
+    def _scan_sensitive(
+        self,
+        text: str,
+        disabled_rule_ids: Collection[str],
+        disabled_categories: Collection[str],
+    ) -> list[Finding]:
         findings: list[Finding] = []
         for rule in SENSITIVE_RULES:
+            if not _rule_enabled(rule, disabled_rule_ids, disabled_categories):
+                continue
             for match in rule.regex.finditer(text):
                 findings.append(
                     Finding(
@@ -91,15 +152,27 @@ class SecurityScanner:
                         source="plain",
                         evidence=_masked_evidence(match.group(0)),
                         description=rule.description,
+                        tags=rule.effective_tags,
+                        references=rule.references,
+                        recommended_remediation=rule.recommended_remediation,
                     )
                 )
                 if len(findings) >= MAX_FINDINGS:
                     return findings
         return findings
 
-    def _scan_direct(self, text: str, rules: tuple[Rule, ...], source: str) -> list[Finding]:
+    def _scan_direct(
+        self,
+        text: str,
+        rules: tuple[Rule, ...],
+        source: str,
+        disabled_rule_ids: Collection[str],
+        disabled_categories: Collection[str],
+    ) -> list[Finding]:
         findings: list[Finding] = []
         for rule in rules:
+            if not _rule_enabled(rule, disabled_rule_ids, disabled_categories):
+                continue
             match = rule.regex.search(text)
             if not match:
                 continue
@@ -113,6 +186,9 @@ class SecurityScanner:
                     source=source,
                     evidence=evidence,
                     description=rule.description,
+                    tags=rule.effective_tags,
+                    references=rule.references,
+                    recommended_remediation=rule.recommended_remediation,
                 )
             )
             if len(findings) >= MAX_FINDINGS:
@@ -132,3 +208,6 @@ class SecurityScanner:
                 break
         return unique
 
+
+def _rule_enabled(rule: Rule, disabled_rule_ids: Collection[str], disabled_categories: Collection[str]) -> bool:
+    return rule.rule_id not in disabled_rule_ids and rule.category not in disabled_categories

@@ -97,7 +97,7 @@ Goal: make findings understandable, defensible, and easy to tune.
 Tasks:
 
 - Split built-in rules into YAML or data files while keeping Python fallback defaults.
-- Add rule metadata:
+- Add rule metadata to findings and future rule files: (partially done)
   - `rule_id`
   - `category`
   - `severity`
@@ -105,7 +105,7 @@ Tasks:
   - `description`
   - `references`
   - `recommended_remediation`
-- Add per-rule enable/disable support in `config/policy.yaml`.
+- Add per-rule enable/disable support in `config/policy.yaml`. (done)
 - Add `action: block | redact | log_only`.
 - Add rule tags such as `cn`, `en`, `encoded`, `jailbreak`, `system_prompt`.
 - Add audit summary that groups findings by category and severity.
@@ -231,8 +231,8 @@ Potential future work:
 
 Start here:
 
-1. Move built-in scanner rules toward configurable rule metadata.
+1. Move built-in scanner rules into YAML/data files while keeping Python fallback defaults.
 2. Improve audit finding schema and dashboard finding views.
 3. Add tool-call argument scanning and policy.
 
-The next implementation task should be **move built-in scanner rules toward configurable rule metadata**, unless a blocking bug appears first.
+The next implementation task should be **move built-in scanner rules into YAML/data files**, unless a blocking bug appears first.

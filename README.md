@@ -31,7 +31,7 @@ Most "LLM firewalls" make you rewrite your agent, break SSE streaming, or ship y
 - **Input redaction** for email, Chinese mobile, Chinese ID, common API keys, generic secret assignments, GitHub tokens, AWS access keys, and private keys
 - **Output redaction** for secrets / PII and simple system-prompt leak hints
 - `/v1/*` passthrough for non-chat routes such as `/v1/models`
-- Route policy YAML for per-route scan / redaction settings
+- Route policy YAML for per-route scan / redaction settings and rule disables
 - Optional gateway API-key authentication
 - Optional in-memory per-principal rate limiting
 - Token usage tracking from provider `usage` fields
@@ -134,6 +134,8 @@ default:
   block_prompt_injection: true
   audit: true
   blocked_status_code: 403
+  disabled_rules: []
+  disabled_categories: []
 
 routes:
   - name: chat_completions
@@ -159,6 +161,20 @@ Supported route fields:
 | `block_prompt_injection` | Block high-confidence prompt-injection findings. |
 | `audit` | Write JSONL audit events for the route. |
 | `blocked_status_code` | HTTP status for WAF-blocked requests on the route. |
+| `disabled_rules` | Rule IDs to disable for this route, useful for controlled false-positive tuning. |
+| `disabled_categories` | Finding categories to disable for this route, for example `pii` or `system_prompt_leak`. |
+
+Rule disabling affects both scan findings and redaction. Prefer disabling a specific `rule_id` first; category-level disables are broader and should be used only for trusted routes.
+
+Example for tuning one noisy route:
+
+```yaml
+routes:
+  - name: internal_security_training
+    path: /v1/training/chat/completions
+    disabled_rules:
+      - inj.jailbreak.en
+```
 
 To use another policy file:
 

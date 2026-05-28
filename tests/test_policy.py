@@ -21,11 +21,14 @@ class PolicyStoreTests(unittest.TestCase):
 default:
   blocked_status_code: 403
   redact_outputs: true
+  disabled_categories: pii, secret
 routes:
   - name: strict_chat
     path: /v1/chat/completions
     blocked_status_code: 451
     output_scanning: false
+    disabled_rules:
+      - inj.ignore_previous.en
 """,
                 encoding="utf-8",
             )
@@ -35,6 +38,8 @@ routes:
             self.assertEqual(policy.blocked_status_code, 451)
             self.assertFalse(policy.output_scanning)
             self.assertTrue(policy.redact_outputs)
+            self.assertEqual(policy.disabled_categories, ("pii", "secret"))
+            self.assertEqual(policy.disabled_rules, ("inj.ignore_previous.en",))
 
     def test_prefix_route_matching(self):
         store = PolicyStore(
@@ -47,4 +52,3 @@ routes:
 
 if __name__ == "__main__":
     unittest.main()
-

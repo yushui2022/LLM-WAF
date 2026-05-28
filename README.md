@@ -402,11 +402,20 @@ Run the tests:
 python -m unittest discover -s tests
 ```
 
+Run the WAF scanner evaluation set:
+
+```bash
+python scripts/evaluate.py --show-misses --min-precision 0.95 --min-recall 0.95
+```
+
+The default eval set lives at `tests/eval_set.jsonl`. Add both malicious samples and benign hard negatives when changing rules; the goal is to improve recall without quietly increasing false positives.
+
 ## Contributing
 
 Issues and PRs welcome — especially:
 
 - New Chinese / multilingual prompt-injection rules (`app/security/rules.py`)
+- Benign hard negatives and attack samples (`tests/eval_set.jsonl`)
 - Useful default route policies (`config/policy.yaml`)
 - Additional PII / secret detectors
 - Real-world bypass reports against the current rule set

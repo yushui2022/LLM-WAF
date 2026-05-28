@@ -47,7 +47,7 @@ INPUT_RULES: tuple[Rule, ...] = (
         "role_hijack",
         "high",
         "block",
-        r"\b(you\s+are\s+now|pretend\s+(you\s+are|to\s+be)|act\s+as\s+(if\s+you\s+are|a|an)|switch\s+to\s+(developer|admin|god)\s+mode)\b",
+        r"\b(you\s+are\s+now.{0,60}(unrestricted|admin|developer|root|jailbroken|hacker|no\s+restrictions?)|pretend\s+(you\s+are|to\s+be).{0,80}(without\s+(any\s+)?(safety|content)\s+filters?|no\s+restrictions?|unrestricted|hacker|criminal)|act\s+as\s+if\s+you\s+(are|were).{0,80}(without\s+(any\s+)?safety|no\s+restrictions?|unrestricted|hacker|criminal)|switch\s+to\s+(developer|admin|god)\s+mode)\b",
         "Attempts to replace the assistant identity or operating mode.",
     ),
     Rule(
@@ -197,4 +197,3 @@ OUTPUT_RULES: tuple[Rule, ...] = (
         "[REDACTED:system_prompt]",
     ),
 )
-

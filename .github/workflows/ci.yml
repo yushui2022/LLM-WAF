@@ -27,6 +27,9 @@ jobs:
       - name: Run unit tests
         run: python -B -m unittest discover -s tests
 
+      - name: Run ReDoS probe
+        run: python -B scripts/redos_probe.py
+
       - name: Run input WAF eval
         run: >
           python -B scripts/evaluate.py

@@ -16,6 +16,7 @@ from collections import Counter
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 from fastapi import FastAPI, Request, Response
@@ -146,6 +147,20 @@ async def index() -> dict[str, str]:
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok", "service": settings.service_name, "version": "0.1.0"}
+
+
+@app.get("/health/config")
+async def health_config(request: Request) -> Response:
+    auth = gateway_auth.authenticate_headers(request.headers)
+    if not auth.allowed:
+        return _error_response(
+            _trace_id(),
+            401,
+            "unauthorized",
+            "Missing or invalid gateway API key.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return JSONResponse(_redacted_config_summary())
 
 
 @app.get("/metrics")
@@ -929,6 +944,68 @@ def _structured_log_event(event: dict[str, Any]) -> dict[str, Any]:
         "fail_closed",
     )
     return {field: event[field] for field in allowed_fields if field in event}
+
+
+def _redacted_config_summary() -> dict[str, Any]:
+    return {
+        "service_name": settings.service_name,
+        "bind_host": settings.bind_host,
+        "bind_port": settings.bind_port,
+        "upstream_base_url": _redact_url(settings.upstream_base_url),
+        "upstream_api_key": _secret_state(settings.upstream_api_key),
+        "upstream_timeout_seconds": settings.upstream_timeout_seconds,
+        "max_body_bytes": settings.max_body_bytes,
+        "gateway_api_keys": {"enabled": bool(settings.gateway_api_keys), "count": len(settings.gateway_api_keys)},
+        "rate_limit": {
+            "per_minute": settings.rate_limit_per_minute,
+            "backend": settings.rate_limit_backend,
+            "redis_url": _redact_url(settings.redis_url),
+        },
+        "policy_path": str(settings.policy_path),
+        "rules_path": str(settings.rules_path),
+        "pricing_path": str(settings.pricing_path),
+        "fail_closed": settings.fail_closed,
+        "redact_inputs": settings.redact_inputs,
+        "redact_outputs": settings.redact_outputs,
+        "scan_outputs": settings.scan_outputs,
+        "scanner_rule_timeout_ms": settings.scanner_rule_timeout_ms,
+        "stream_scan_window_chars": settings.stream_scan_window_chars,
+        "stream_hold_back_frames": settings.stream_hold_back_frames,
+        "semantic_scanner": {
+            "enabled": bool(settings.semantic_scanner_url),
+            "url": _redact_url(settings.semantic_scanner_url),
+            "timeout_seconds": settings.semantic_scanner_timeout_seconds,
+        },
+        "semantic_local": {
+            "enabled": settings.semantic_local_enabled,
+            "model_path": _secret_state(str(settings.semantic_local_model_path)),
+            "tokenizer_path": _secret_state(str(settings.semantic_local_tokenizer_path)),
+            "threshold": settings.semantic_local_threshold,
+            "action": settings.semantic_local_action,
+            "max_chars": settings.semantic_local_max_chars,
+            "timeout_seconds": settings.semantic_local_timeout_seconds,
+        },
+        "allow_unscanned_generation_passthrough": settings.allow_unscanned_generation_passthrough,
+    }
+
+
+def _secret_state(value: str) -> str:
+    return "<set>" if str(value).strip() else "<unset>"
+
+
+def _redact_url(value: str) -> str:
+    if not value:
+        return "<unset>"
+    try:
+        parsed = urlsplit(value)
+    except ValueError:
+        return "<set>"
+    if not parsed.netloc:
+        return value
+    host = parsed.hostname or ""
+    port = f":{parsed.port}" if parsed.port else ""
+    netloc = f"<redacted>@{host}{port}" if parsed.username or parsed.password else f"{host}{port}"
+    return urlunsplit((parsed.scheme, netloc, parsed.path, parsed.query, ""))
 
 
 def _join_payload_text(segments: list[PayloadTextSegment]) -> str:

@@ -92,3 +92,18 @@ It intentionally excludes:
 
 Use JSONL audit for detailed finding records. Use structured logs for container
 log shipping and operational alerting.
+
+## Health And Config
+
+`GET /health` returns a basic liveness response.
+
+`GET /health/config` returns a redacted runtime configuration summary. It uses
+the same gateway API-key authentication as the chat endpoint when
+`GATEWAY_API_KEYS` is configured.
+
+The config endpoint reports whether secrets are set, but never returns the
+secret values themselves. URLs with userinfo are redacted, for example:
+
+```text
+redis://<redacted>@localhost:6379/0
+```

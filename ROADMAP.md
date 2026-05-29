@@ -664,7 +664,8 @@ adoption.
 - Done: request counter, request latency histogram, scanner latency histogram, upstream latency histogram, finding counter by category/severity/action/source, scanner error counter, and fail-closed counter.
 - Done: `docs/observability.md` documents metrics, scrape config, and starter PromQL queries.
 - Done: structured JSON request log through `llm_waf.requests`, with raw finding evidence and exception text omitted.
-- Pending: richer health/config detail.
+- Done: auth-gated `/health/config` redacted runtime configuration summary.
+- Pending: startup-time structured config summary.
 
 #### P2-B2. Performance benchmark + published latency budget
 

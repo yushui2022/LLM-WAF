@@ -65,6 +65,12 @@ docker compose up --build
 
 Open the dashboard at <http://localhost:8080/dashboard>.
 
+Operational endpoints:
+
+- `/health` returns a basic liveness response.
+- `/health/config` returns a redacted runtime configuration summary and uses gateway API-key auth when `GATEWAY_API_KEYS` is configured.
+- `/metrics` returns Prometheus-compatible metrics.
+
 ### Picking the upstream URL
 
 `UPSTREAM_BASE_URL` should be **exactly the `base_url` you'd pass to an OpenAI-compatible SDK** — including the `/v1` segment when the provider expects it.

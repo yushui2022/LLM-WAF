@@ -29,6 +29,42 @@ class GatewayTests(unittest.TestCase):
         self.assertIn("llm_waf_scanner_latency_ms", response.text)
         self.assertIn("llm_waf_upstream_latency_ms", response.text)
 
+    def test_health_config_redacts_secrets(self):
+        original_upstream_key = main_module.settings.upstream_api_key
+        original_redis_url = main_module.settings.redis_url
+        original_semantic_url = main_module.settings.semantic_scanner_url
+        try:
+            object.__setattr__(main_module.settings, "upstream_api_key", "sk-secret")
+            object.__setattr__(main_module.settings, "redis_url", "redis://user:pass@localhost:6379/0")
+            object.__setattr__(main_module.settings, "semantic_scanner_url", "https://token:secret@example.com/scan")
+
+            response = self.client.get("/health/config")
+        finally:
+            object.__setattr__(main_module.settings, "upstream_api_key", original_upstream_key)
+            object.__setattr__(main_module.settings, "redis_url", original_redis_url)
+            object.__setattr__(main_module.settings, "semantic_scanner_url", original_semantic_url)
+
+        self.assertEqual(response.status_code, 200)
+        rendered = main_module.json_dumps(response.json())
+        self.assertIn('"upstream_api_key":"<set>"', rendered)
+        self.assertIn("redis://<redacted>@localhost:6379/0", rendered)
+        self.assertIn("https://<redacted>@example.com/scan", rendered)
+        self.assertNotIn("sk-secret", rendered)
+        self.assertNotIn("user:pass", rendered)
+        self.assertNotIn("token:secret", rendered)
+
+    def test_health_config_requires_gateway_auth_when_enabled(self):
+        original_auth = main_module.gateway_auth
+        try:
+            main_module.gateway_auth = GatewayAuth(("dev-key",), "X-LLM-WAF-Key")
+            missing = self.client.get("/health/config")
+            allowed = self.client.get("/health/config", headers={"X-LLM-WAF-Key": "dev-key"})
+        finally:
+            main_module.gateway_auth = original_auth
+
+        self.assertEqual(missing.status_code, 401)
+        self.assertEqual(allowed.status_code, 200)
+
     def test_blocks_before_upstream(self):
         response = self.client.post(
             "/v1/chat/completions",

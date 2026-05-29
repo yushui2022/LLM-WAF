@@ -87,6 +87,8 @@ class Settings:
     blocked_status_code: int = _env_int("BLOCKED_STATUS_CODE", 403)
 
     audit_log_path: Path = Path(os.getenv("AUDIT_LOG_PATH", "var/audit/events.jsonl"))
+    audit_rotate_max_bytes: int = _env_int("AUDIT_ROTATE_MAX_BYTES", 10_000_000)
+    audit_rotate_backups: int = _env_int("AUDIT_ROTATE_BACKUPS", 5)
     dashboard_limit: int = _env_int("DASHBOARD_LIMIT", 50)
 
     enable_cors: bool = _env_bool("ENABLE_CORS", True)

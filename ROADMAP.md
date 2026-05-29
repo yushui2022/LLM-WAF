@@ -724,6 +724,10 @@ Compliance-minded users need durable, exportable audit.
   request path) and this is tested.
 - No secret material in any sink output (shared test with P2-B1).
 
+**Progress (2026-05-29):**
+- Done: default JSONL audit sink rotates by size with configurable backup count.
+- Pending: stdout JSON sink and optional HTTP/SIEM sink.
+
 ---
 
 ### Track C — Release engineering & project hygiene (so contributors and users arrive)

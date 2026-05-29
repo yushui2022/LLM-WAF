@@ -18,6 +18,18 @@ class AuditLogTests(unittest.TestCase):
             self.assertEqual(len(events), 1)
             self.assertEqual(events[0]["trace_id"], "two")
 
+    def test_rotates_file_by_size_and_tails_across_backups(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "events.jsonl"
+            audit = AuditLog(path, rotate_max_bytes=70, rotate_backups=2)
+
+            for index in range(6):
+                audit.append({"trace_id": f"event-{index}", "decision": "allowed", "padding": "x" * 20})
+
+            self.assertTrue(Path(f"{path}.1").exists())
+            events = audit.tail(3)
+            self.assertEqual([event["trace_id"] for event in events], ["event-3", "event-4", "event-5"])
+
     def test_dashboard_renders_token_usage(self):
         html = render_dashboard(
             [

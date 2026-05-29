@@ -83,7 +83,7 @@ semantic_scanners: tuple[SemanticScanner, ...] = tuple(
     )
     if scanner is not None
 )
-audit_log = AuditLog(settings.audit_log_path)
+audit_log = AuditLog(settings.audit_log_path, settings.audit_rotate_max_bytes, settings.audit_rotate_backups)
 gateway_auth = GatewayAuth(settings.gateway_api_keys, settings.gateway_api_key_header)
 rate_limiter = create_rate_limiter(settings.rate_limit_per_minute, settings.rate_limit_backend, settings.redis_url)
 policy_store = PolicyStore.load(
@@ -986,6 +986,11 @@ def _redacted_config_summary() -> dict[str, Any]:
             "timeout_seconds": settings.semantic_local_timeout_seconds,
         },
         "allow_unscanned_generation_passthrough": settings.allow_unscanned_generation_passthrough,
+        "audit": {
+            "log_path": str(settings.audit_log_path),
+            "rotate_max_bytes": settings.audit_rotate_max_bytes,
+            "rotate_backups": settings.audit_rotate_backups,
+        },
     }
 
 

@@ -93,6 +93,20 @@ It intentionally excludes:
 Use JSONL audit for detailed finding records. Use structured logs for container
 log shipping and operational alerting.
 
+## Audit Rotation
+
+The default JSONL audit sink rotates by size so a long-running gateway does not
+grow one file forever:
+
+```env
+AUDIT_LOG_PATH=var/audit/events.jsonl
+AUDIT_ROTATE_MAX_BYTES=10000000
+AUDIT_ROTATE_BACKUPS=5
+```
+
+Rotated files are named `events.jsonl.1`, `events.jsonl.2`, and so on. Set
+`AUDIT_ROTATE_MAX_BYTES=0` to disable rotation.
+
 ## Health And Config
 
 `GET /health` returns a basic liveness response.

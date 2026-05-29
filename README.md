@@ -416,6 +416,8 @@ Audit events include:
 | `BLOCKED_STATUS_CODE` | `403` | HTTP status returned when a request is blocked. |
 | `FAIL_CLOSED` | `false` | If scanner execution fails, block input requests and suppress buffered outputs instead of failing open. Streaming outputs terminate with an SSE error event. |
 | `AUDIT_LOG_PATH` | `var/audit/events.jsonl` | JSONL audit log path. |
+| `AUDIT_ROTATE_MAX_BYTES` | `10000000` | Rotate the JSONL audit file once it exceeds this size. Set `0` to disable rotation. |
+| `AUDIT_ROTATE_BACKUPS` | `5` | Number of rotated audit files to keep (`events.jsonl.1`, `events.jsonl.2`, ...). |
 | `DASHBOARD_LIMIT` | `50` | Number of recent events shown in `/dashboard`. |
 
 ## Architecture

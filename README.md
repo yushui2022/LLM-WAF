@@ -483,22 +483,27 @@ Streaming responses are proxied as Server-Sent Events. Output scanning uses a ro
 ```bash
 python -m venv .venv
 . .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
+pip install -e ".[dev]"
 
 uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
 ```
 
-Run the tests:
+Run the local quality gates:
 
 ```bash
-python -m unittest discover -s tests
+python -m ruff check .
+python -m ruff format --check .
+python -m mypy
+python -B -m coverage run -m unittest discover -s tests
+python -B -m coverage report
+python -B scripts/redos_probe.py
 ```
 
 Run the WAF scanner evaluation sets:
 
 ```bash
-python scripts/evaluate.py --direction input --show-misses --min-precision 0.95 --min-recall 0.95
-python scripts/evaluate.py --direction output --show-misses --min-precision 0.95 --min-recall 0.95
+python -B scripts/evaluate.py --direction input --show-misses --min-precision 0.95 --min-recall 0.95 --min-category-recall 0.95
+python -B scripts/evaluate.py --direction output --show-misses --min-precision 0.95 --min-recall 0.95 --min-category-recall 0.95
 ```
 
 The eval output includes aggregate metrics and per-category metrics. For stricter rule work, add `--min-category-recall 0.95` so a strong overall score cannot hide a weak category. The default input eval set lives at `tests/eval_set.jsonl`; the default output eval set lives at `tests/output_eval_set.jsonl`. Add both malicious samples and benign hard negatives when changing rules; the goal is to improve recall without quietly increasing false positives.

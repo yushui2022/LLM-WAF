@@ -3,4 +3,3 @@
 from app.security.scanner import SecurityScanner
 
 __all__ = ["SecurityScanner"]
-

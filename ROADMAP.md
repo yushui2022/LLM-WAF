@@ -237,12 +237,11 @@ Potential future work:
 
 ## Near-Term Direction
 
-The old near-term list has been superseded by the Phase 2 plan below. Current priority is:
+The old near-term list has been superseded by the Phase 2 plan below. `P2-C1` is done; current priority is:
 
-1. Add CI lint/type/coverage gates (`P2-C1`) so every later PR gets stronger feedback.
-2. Start the optional local semantic layer (`P2-A1`) and the credible eval-set expansion (`P2-A2`).
-3. Run production-readiness work in parallel where possible: observability, benchmark, and audit durability (`Track B`).
-4. Continue indirect/tool-call injection protection after the semantic/eval foundation is in place (`P2-A3`).
+1. Start the optional local semantic layer (`P2-A1`) and the credible eval-set expansion (`P2-A2`).
+2. Run production-readiness work in parallel where possible: observability, benchmark, and audit durability (`Track B`).
+3. Continue indirect/tool-call injection protection after the semantic/eval foundation is in place (`P2-A3`).
 
 ---
 
@@ -712,7 +711,7 @@ Compliance-minded users need durable, exportable audit.
 Cheap, high-leverage, mostly parallelizable. These make the repo look and behave
 like a serious open-source project.
 
-#### P2-C1. CI quality gates: lint + type-check + coverage
+#### P2-C1. CI quality gates: lint + type-check + coverage — DONE 2026-05-29
 
 **Difficulty:** S · **Risk:** Low · **Blocking:** none (do early — it improves every later PR)
 
@@ -790,7 +789,7 @@ bad look and deters serious users. These files also signal maturity.
 
 ### Phase 2 Suggested Schedule for an Implementation Agent
 
-1. **P2-C1** (CI gates) first — it raises quality on every subsequent PR and is cheap.
+1. **P2-C1** (CI gates) — done.
 2. **P2-A1** (semantic layer) — the headline capability; longest lead time, start early.
 3. **P2-A2** (eval credibility) in parallel with A1 — A1 needs the regex-miss slice A2 produces.
 4. **Track B** (observability, benchmark, audit sinks) — parallelizable across agents.

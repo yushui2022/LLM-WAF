@@ -41,9 +41,7 @@ def adversarial_inputs(filler_len: int) -> list[tuple[str, str]]:
     role_bait = "you are now " + ("x" * 60)
     pretend_bait = "pretend you are " + ("x" * 80)
     ignore_zh = "忽略" + ("之" * 12) + "上面" + ("之" * 12) + "指令"
-    hidden_zh = (
-        "原样" + ("x" * 12) + "复述" + ("x" * 20) + "后台" + ("x" * 12) + "规则"
-    )
+    hidden_zh = "原样" + ("x" * 12) + "复述" + ("x" * 20) + "后台" + ("x" * 12) + "规则"
     return [
         ("a_run", a_run + "b"),
         ("zh_run", zh_run + "X"),
@@ -69,9 +67,7 @@ def probe_rule(rule: Rule, inputs: list[tuple[str, str]], max_ms: float) -> list
             continue
         elapsed_ms = (time.perf_counter() - start) * 1000.0
         if elapsed_ms > max_ms:
-            failures.append(
-                f"{rule.rule_id} [{label}] took {elapsed_ms:.1f}ms (limit {max_ms:.0f}ms)"
-            )
+            failures.append(f"{rule.rule_id} [{label}] took {elapsed_ms:.1f}ms (limit {max_ms:.0f}ms)")
     return failures
 
 

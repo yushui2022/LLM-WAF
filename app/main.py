@@ -42,7 +42,6 @@ from app.security.rules import RULE_SET, deprecated_alias_map
 from app.security.scanner import SecurityScanner
 from app.security.semantic import HttpSemanticScanner, merge_scan_results
 
-
 app = FastAPI(
     title="LLM-WAF",
     description="Zero-intrusion LLM security gateway with streaming proxy, redaction, audit logs, and dashboard.",
@@ -59,9 +58,7 @@ if settings.enable_cors:
 
 scanner = SecurityScanner()
 semantic_scanner = (
-    HttpSemanticScanner(settings.semantic_scanner_url, settings.semantic_scanner_timeout_seconds)
-    if settings.semantic_scanner_url
-    else None
+    HttpSemanticScanner(settings.semantic_scanner_url, settings.semantic_scanner_timeout_seconds) if settings.semantic_scanner_url else None
 )
 audit_log = AuditLog(settings.audit_log_path)
 gateway_auth = GatewayAuth(settings.gateway_api_keys, settings.gateway_api_key_header)
@@ -96,8 +93,7 @@ def _warn_deprecated_disabled_rules() -> None:
             if rule_id in alias_map and rule_id not in seen:
                 seen.add(rule_id)
                 logger.warning(
-                    "policy %r disables rule by deprecated ID %r; rename to %r "
-                    "(aliases are removed next release)",
+                    "policy %r disables rule by deprecated ID %r; rename to %r (aliases are removed next release)",
                     policy.name,
                     rule_id,
                     alias_map[rule_id],
@@ -193,11 +189,7 @@ async def chat_completions(request: Request) -> Response:
     event = _base_event(trace_id, request, started, model=model, stream=stream, auth=auth, policy=policy, rate_limit=rate_limit)
     event["prompt_sha256"] = _sha256(request_text)
 
-    input_scan = (
-        await _scan_input_safely(request_text, policy, event)
-        if policy.input_scanning
-        else None
-    )
+    input_scan = await _scan_input_safely(request_text, policy, event) if policy.input_scanning else None
     if input_scan is None and event.get("reason") == "scanner_failure" and settings.fail_closed:
         event.update({"decision": "blocked", "status_code": 503, **_finding_fields([])})
         _audit(event, policy)

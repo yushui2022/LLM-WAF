@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -18,8 +19,8 @@ class Finding:
     references: tuple[str, ...] = ()
     recommended_remediation: str = ""
 
-    def to_audit_dict(self) -> dict:
-        data = {
+    def to_audit_dict(self) -> dict[str, Any]:
+        data: dict[str, Any] = {
             "rule_id": self.rule_id,
             "category": self.category,
             "severity": self.severity,
@@ -57,5 +58,5 @@ class ScanResult:
             return "none"
         return max(self.findings, key=lambda f: order.get(f.severity, 0)).severity
 
-    def to_audit_findings(self, limit: int = 20) -> list[dict]:
+    def to_audit_findings(self, limit: int = 20) -> list[dict[str, Any]]:
         return [f.to_audit_dict() for f in self.findings[:limit]]

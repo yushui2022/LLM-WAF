@@ -8,7 +8,6 @@ from typing import Any
 
 import yaml
 
-
 TOKENS_PER_MILLION = 1_000_000
 
 
@@ -114,4 +113,3 @@ def _float_value(value: Any) -> float:
         return float(value)
     except (TypeError, ValueError):
         return 0.0
-

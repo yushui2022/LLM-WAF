@@ -10,7 +10,6 @@ import unicodedata
 from dataclasses import dataclass
 from urllib.parse import unquote
 
-
 ZERO_WIDTH_RE = re.compile(r"[\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]")
 BASE64_RE = re.compile(r"(?<![A-Za-z0-9+/])(?:[A-Za-z0-9+/]{16,}={0,2})(?![A-Za-z0-9+/])")
 HEX_RE = re.compile(r"(?<![0-9a-fA-F])(?:0x)?([0-9a-fA-F]{20,})(?![0-9a-fA-F])")
@@ -134,4 +133,3 @@ def text_variants(text: str) -> list[TextVariant]:
                     queue.append((norm_source, normalized_decoded, depth + 1))
 
     return variants
-

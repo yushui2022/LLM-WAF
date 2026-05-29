@@ -19,8 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from app.security.scanner import SecurityScanner
-
+from app.security.scanner import SecurityScanner  # noqa: E402
 
 Direction = Literal["input", "output"]
 
@@ -155,11 +154,7 @@ def print_category_summary(metrics: dict[str, Any]) -> None:
             rates = f"precision={values['precision']:.2%} recall={values['recall']:.2%}"
         else:
             rates = f"fpr={values['false_positive_rate']:.2%}"
-        print(
-            f"{category}: samples={values['samples']} "
-            f"TP/FP/TN/FN={values['tp']}/{values['fp']}/{values['tn']}/{values['fn']} "
-            f"{rates}"
-        )
+        print(f"{category}: samples={values['samples']} TP/FP/TN/FN={values['tp']}/{values['fp']}/{values['tn']}/{values['fn']} {rates}")
 
 
 def _format_decision(direction: Direction, positive: bool) -> str:

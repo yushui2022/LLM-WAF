@@ -1,7 +1,7 @@
 import unittest
 
-from app.security.semantic import merge_scan_results
 from app.security.models import Finding, ScanResult
+from app.security.semantic import merge_scan_results
 
 
 class SemanticScannerTests(unittest.TestCase):

@@ -12,13 +12,49 @@ dependencies = [
   "httpx==0.27.0",
   "python-dotenv==1.0.1",
   "PyYAML==6.0.1",
+  "redis==5.0.4",
 ]
 
 [project.optional-dependencies]
 dev = [
-  "pytest>=8.0.0",
+  "coverage[toml]>=7.6.0,<8.0.0",
+  "mypy>=1.14.0,<2.0.0",
+  "ruff>=0.8.0,<1.0.0",
+  "types-PyYAML>=6.0.12,<7.0.0",
 ]
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+exclude = ["config*", "docs*", "examples*", "rules*", "scripts*", "tests*", "var*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 140
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]
+
+[tool.ruff.format]
+line-ending = "lf"
+
+[tool.mypy]
+python_version = "3.11"
+files = ["app", "scripts"]
+ignore_missing_imports = true
+check_untyped_defs = true
+warn_unused_configs = true
+
+[tool.coverage.run]
+branch = true
+source = ["app"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+exclude_also = [
+  "if __name__ == .__main__.:",
+]

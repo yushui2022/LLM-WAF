@@ -21,9 +21,7 @@ class PayloadTests(unittest.TestCase):
                 {"role": "user", "content": "hello"},
                 {
                     "role": "assistant",
-                    "tool_calls": [
-                        {"function": {"arguments": "{\"email\":\"test@example.com\"}"}}
-                    ],
+                    "tool_calls": [{"function": {"arguments": '{"email":"test@example.com"}'}}],
                 },
             ]
         }
@@ -64,29 +62,13 @@ class PayloadTests(unittest.TestCase):
 
     def test_extracts_response_tool_call_arguments(self):
         body = {
-            "choices": [
-                {
-                    "message": {
-                        "tool_calls": [
-                            {"function": {"name": "send_email", "arguments": "{\"email\":\"test@example.com\"}"}}
-                        ]
-                    }
-                }
-            ]
+            "choices": [{"message": {"tool_calls": [{"function": {"name": "send_email", "arguments": '{"email":"test@example.com"}'}}]}}]
         }
         self.assertIn("test@example.com", extract_response_text(body))
 
     def test_redacts_response_tool_call_arguments(self):
         body = {
-            "choices": [
-                {
-                    "message": {
-                        "tool_calls": [
-                            {"function": {"name": "send_email", "arguments": "{\"email\":\"test@example.com\"}"}}
-                        ]
-                    }
-                }
-            ]
+            "choices": [{"message": {"tool_calls": [{"function": {"name": "send_email", "arguments": '{"email":"test@example.com"}'}}]}}]
         }
         redacted = redact_response_body(body, self.scanner.redact_output)
         arguments = redacted["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"]
@@ -94,15 +76,7 @@ class PayloadTests(unittest.TestCase):
 
     def test_redacts_streaming_tool_call_arguments(self):
         payload = {
-            "choices": [
-                {
-                    "delta": {
-                        "tool_calls": [
-                            {"function": {"name": "send_email", "arguments": "{\"email\":\"test@example.com\"}"}}
-                        ]
-                    }
-                }
-            ]
+            "choices": [{"delta": {"tool_calls": [{"function": {"name": "send_email", "arguments": '{"email":"test@example.com"}'}}]}}]
         }
         redacted, changed = redact_sse_json_payload(payload, self.scanner.redact_output)
         arguments = redacted["choices"][0]["delta"]["tool_calls"][0]["function"]["arguments"]

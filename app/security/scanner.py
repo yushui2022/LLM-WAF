@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Collection
+from typing import cast
 
 from app.security.models import Finding, ScanResult
 from app.security.normalizer import text_variants
 from app.security.rules import INPUT_RULES, OUTPUT_RULES, SENSITIVE_RULES, Rule
 from app.security.timing import TIMEOUT_SENTINEL, run_with_timeout
-
 
 MAX_EVIDENCE_CHARS = 120
 MAX_FINDINGS = 50
@@ -39,6 +40,18 @@ def _masked_evidence(text: str) -> str:
     if len(compact) <= 8:
         return "***"
     return compact[:3] + "***" + compact[-3:]
+
+
+def _regex_sub(rule: Rule, text: str) -> str:
+    return rule.regex.sub(rule.replacement or "[REDACTED]", text)
+
+
+def _regex_finditer(rule: Rule, text: str) -> list[re.Match[str]]:
+    return list(rule.regex.finditer(text))
+
+
+def _regex_search(rule: Rule, text: str) -> re.Match[str] | None:
+    return rule.regex.search(text)
 
 
 class SecurityScanner:
@@ -117,12 +130,10 @@ class SecurityScanner:
             if not _rule_enabled(rule, disabled_rule_ids, disabled_categories):
                 continue
             current = redacted
-            outcome = run_with_timeout(
-                lambda r=rule, t=current: r.regex.sub(r.replacement or "[REDACTED]", t)
-            )
+            outcome = run_with_timeout(lambda: _regex_sub(rule, current))
             if outcome is TIMEOUT_SENTINEL:
                 continue
-            redacted = outcome  # type: ignore[assignment]
+            redacted = cast(str, outcome)
         return redacted
 
     def redact_output(
@@ -138,12 +149,10 @@ class SecurityScanner:
             if not _rule_enabled(rule, disabled_rule_ids, disabled_categories):
                 continue
             current = redacted
-            outcome = run_with_timeout(
-                lambda r=rule, t=current: r.regex.sub(r.replacement or "[REDACTED]", t)
-            )
+            outcome = run_with_timeout(lambda: _regex_sub(rule, current))
             if outcome is TIMEOUT_SENTINEL:
                 continue
-            redacted = outcome  # type: ignore[assignment]
+            redacted = cast(str, outcome)
         return redacted
 
     def _scan_static_rules(
@@ -178,13 +187,13 @@ class SecurityScanner:
         for rule in self.sensitive_rules:
             if not _rule_enabled(rule, disabled_rule_ids, disabled_categories):
                 continue
-            outcome = run_with_timeout(lambda r=rule, t=text: list(r.regex.finditer(t)))
+            outcome = run_with_timeout(lambda: _regex_finditer(rule, text))
             if outcome is TIMEOUT_SENTINEL:
                 findings.append(_timeout_finding(rule, "plain"))
                 if len(findings) >= MAX_FINDINGS:
                     return findings
                 continue
-            for match in outcome:  # type: ignore[union-attr]
+            for match in cast(list[re.Match[str]], outcome):
                 findings.append(
                     Finding(
                         rule_id=rule.rule_id,
@@ -215,13 +224,13 @@ class SecurityScanner:
         for rule in rules:
             if not _rule_enabled(rule, disabled_rule_ids, disabled_categories):
                 continue
-            outcome = run_with_timeout(lambda r=rule, t=text: r.regex.search(t))
+            outcome = run_with_timeout(lambda: _regex_search(rule, text))
             if outcome is TIMEOUT_SENTINEL:
                 findings.append(_timeout_finding(rule, source))
                 if len(findings) >= MAX_FINDINGS:
                     return findings
                 continue
-            match = outcome
+            match = cast(re.Match[str] | None, outcome)
             if not match:
                 continue
             evidence = _masked_evidence(match.group(0)) if rule.category in {"secret", "pii"} else _preview(match.group(0))

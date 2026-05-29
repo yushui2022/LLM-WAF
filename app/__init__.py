@@ -1,2 +1,1 @@
 """LLM-WAF application package."""
-

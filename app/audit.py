@@ -37,4 +37,3 @@ class AuditLog:
             except json.JSONDecodeError:
                 continue
         return events
-

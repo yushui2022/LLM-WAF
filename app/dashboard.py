@@ -109,8 +109,8 @@ def render_dashboard(events: list[dict[str, Any]], filters: dict[str, str] | Non
 </html>"""
 
 
-def _stat(label: str, value: int) -> str:
-    return f'<div class="stat"><div class="label">{escape(label)}</div><div class="value">{value}</div></div>'
+def _stat(label: str, value: int | str) -> str:
+    return f'<div class="stat"><div class="label">{escape(label)}</div><div class="value">{escape(str(value))}</div></div>'
 
 
 def _render_filters(events: list[dict[str, Any]], active_filters: dict[str, str]) -> str:
@@ -140,11 +140,7 @@ def _select(name: str, label: str, options: list[str], selected: str) -> str:
 def _normalize_filters(filters: dict[str, str] | None) -> dict[str, str]:
     if not filters:
         return {}
-    return {
-        key: str(filters.get(key, "")).strip()
-        for key in ("decision", "category", "severity")
-        if str(filters.get(key, "")).strip()
-    }
+    return {key: str(filters.get(key, "")).strip() for key in ("decision", "category", "severity") if str(filters.get(key, "")).strip()}
 
 
 def _filter_events(events: list[dict[str, Any]], filters: dict[str, str]) -> list[dict[str, Any]]:

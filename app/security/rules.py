@@ -14,7 +14,6 @@ from typing import Any
 
 import yaml
 
-
 # Rules that legitimately need `.` to match newlines (multi-line payloads).
 # Everything else compiles WITHOUT re.DOTALL so `.` is implicitly `[^\n]`,
 # which removes a large class of pathological backtracking on user input

@@ -592,7 +592,8 @@ surfaces is a meaningful coverage expansion and a strong differentiator.
 
 **File-level tasks:**
 - `app/security/payload.py`: add extraction of tool-role message content and
-  `tool_calls` argument JSON as separately-labeled scannable segments.
+  `tool_calls` argument JSON as separately-labeled scannable segments. (done
+  2026-05-29; gateway policy wiring still pending)
 - Scanner/gateway path: scan these segments through the same rule + semantic
   pipeline, tagging findings with `source="tool_call"` / `source="tool_result"`
   so audit and policy can treat them distinctly.

@@ -1,7 +1,9 @@
 import unittest
 
 from app.security.payload import (
+    extract_request_segments,
     extract_request_text,
+    extract_response_segments,
     extract_response_text,
     extract_usage,
     redact_request_body,
@@ -28,6 +30,32 @@ class PayloadTests(unittest.TestCase):
         text = extract_request_text(body)
         self.assertIn("hello", text)
         self.assertIn("test@example.com", text)
+
+    def test_extracts_request_segments_with_source_labels(self):
+        body = {
+            "messages": [
+                {"role": "user", "content": "hello"},
+                {
+                    "role": "tool",
+                    "content": [{"type": "text", "text": "search result says hi"}],
+                },
+                {
+                    "role": "assistant",
+                    "tool_calls": [{"function": {"arguments": '{"email":"test@example.com"}'}}],
+                },
+            ]
+        }
+
+        segments = extract_request_segments(body)
+
+        self.assertEqual(
+            [(segment.kind, segment.role, segment.path) for segment in segments],
+            [
+                ("message_content", "user", "messages[0].content"),
+                ("tool_result", "tool", "messages[1].content[0].text"),
+                ("tool_call_arguments", "assistant", "messages[2].tool_calls[0].function.arguments"),
+            ],
+        )
 
     def test_redacts_string_and_multimodal_text_content(self):
         body = {
@@ -65,6 +93,29 @@ class PayloadTests(unittest.TestCase):
             "choices": [{"message": {"tool_calls": [{"function": {"name": "send_email", "arguments": '{"email":"test@example.com"}'}}]}}]
         }
         self.assertIn("test@example.com", extract_response_text(body))
+
+    def test_extracts_response_segments_with_source_labels(self):
+        body = {
+            "choices": [
+                {
+                    "delta": {
+                        "role": "assistant",
+                        "content": "hello",
+                        "tool_calls": [{"function": {"name": "send_email", "arguments": '{"email":"test@example.com"}'}}],
+                    }
+                }
+            ]
+        }
+
+        segments = extract_response_segments(body)
+
+        self.assertEqual(
+            [(segment.kind, segment.role, segment.path) for segment in segments],
+            [
+                ("response_delta", "assistant", "choices[0].delta.content"),
+                ("response_delta_tool_call_arguments", "assistant", "choices[0].delta.tool_calls[0].function.arguments"),
+            ],
+        )
 
     def test_redacts_response_tool_call_arguments(self):
         body = {

@@ -5,17 +5,34 @@ from __future__ import annotations
 import copy
 import json
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
 
+@dataclass(frozen=True)
+class PayloadTextSegment:
+    text: str
+    kind: str
+    role: str = ""
+    path: str = ""
+
+
 def extract_request_text(body: dict[str, Any]) -> str:
-    parts: list[str] = []
-    for message in body.get("messages", []) or []:
+    return "\n".join(segment.text for segment in extract_request_segments(body) if segment.text)
+
+
+def extract_request_segments(body: dict[str, Any]) -> list[PayloadTextSegment]:
+    segments: list[PayloadTextSegment] = []
+    for message_index, message in enumerate(body.get("messages", []) or []):
         if not isinstance(message, dict):
             continue
-        _collect_content_text(message.get("content"), parts)
-        _collect_tool_call_arguments(message.get("tool_calls"), parts)
-    return "\n".join(p for p in parts if p)
+        role = str(message.get("role", "")).strip()
+        content_kind = "tool_result" if role == "tool" else "message_content"
+        _collect_content_segments(message.get("content"), segments, content_kind, role, f"messages[{message_index}].content")
+        _collect_tool_call_argument_segments(
+            message.get("tool_calls"), segments, "tool_call_arguments", role, f"messages[{message_index}].tool_calls"
+        )
+    return segments
 
 
 def redact_request_body(body: dict[str, Any], redact: Callable[[str], str]) -> dict[str, Any]:
@@ -29,19 +46,39 @@ def redact_request_body(body: dict[str, Any], redact: Callable[[str], str]) -> d
 
 
 def extract_response_text(body: dict[str, Any]) -> str:
-    parts: list[str] = []
-    for choice in body.get("choices", []) or []:
+    return "\n".join(segment.text for segment in extract_response_segments(body) if segment.text)
+
+
+def extract_response_segments(body: dict[str, Any]) -> list[PayloadTextSegment]:
+    segments: list[PayloadTextSegment] = []
+    for choice_index, choice in enumerate(body.get("choices", []) or []):
         if not isinstance(choice, dict):
             continue
         message = choice.get("message") or {}
         if isinstance(message, dict):
-            _collect_content_text(message.get("content"), parts)
-            _collect_tool_call_arguments(message.get("tool_calls"), parts)
+            role = str(message.get("role", "")).strip()
+            _collect_content_segments(
+                message.get("content"), segments, "response_content", role, f"choices[{choice_index}].message.content"
+            )
+            _collect_tool_call_argument_segments(
+                message.get("tool_calls"),
+                segments,
+                "response_tool_call_arguments",
+                role,
+                f"choices[{choice_index}].message.tool_calls",
+            )
         delta = choice.get("delta") or {}
         if isinstance(delta, dict):
-            _collect_content_text(delta.get("content"), parts)
-            _collect_tool_call_arguments(delta.get("tool_calls"), parts)
-    return "\n".join(p for p in parts if p)
+            role = str(delta.get("role", "")).strip()
+            _collect_content_segments(delta.get("content"), segments, "response_delta", role, f"choices[{choice_index}].delta.content")
+            _collect_tool_call_argument_segments(
+                delta.get("tool_calls"),
+                segments,
+                "response_delta_tool_call_arguments",
+                role,
+                f"choices[{choice_index}].delta.tool_calls",
+            )
+    return segments
 
 
 def extract_usage(body: dict[str, Any]) -> dict[str, int]:
@@ -99,22 +136,29 @@ def redact_sse_json_payload(payload: dict[str, Any], redact: Callable[[str], str
     return payload, changed
 
 
-def _collect_content_text(content: Any, parts: list[str]) -> None:
+def _collect_content_segments(content: Any, segments: list[PayloadTextSegment], kind: str, role: str, path: str) -> None:
     if isinstance(content, str):
-        parts.append(content)
+        segments.append(PayloadTextSegment(text=content, kind=kind, role=role, path=path))
         return
     if isinstance(content, list):
-        for item in content:
+        for item_index, item in enumerate(content):
             if not isinstance(item, dict):
                 continue
             if item.get("type") in {"text", "input_text", "output_text"} and isinstance(item.get("text"), str):
-                parts.append(item["text"])
+                segments.append(
+                    PayloadTextSegment(
+                        text=item["text"],
+                        kind=kind,
+                        role=role,
+                        path=f"{path}[{item_index}].text",
+                    )
+                )
 
 
-def _collect_tool_call_arguments(tool_calls: Any, parts: list[str]) -> None:
+def _collect_tool_call_argument_segments(tool_calls: Any, segments: list[PayloadTextSegment], kind: str, role: str, path: str) -> None:
     if not isinstance(tool_calls, list):
         return
-    for tool_call in tool_calls:
+    for tool_call_index, tool_call in enumerate(tool_calls):
         if not isinstance(tool_call, dict):
             continue
         function = tool_call.get("function")
@@ -122,7 +166,14 @@ def _collect_tool_call_arguments(tool_calls: Any, parts: list[str]) -> None:
             continue
         arguments = function.get("arguments")
         if isinstance(arguments, str):
-            parts.append(arguments)
+            segments.append(
+                PayloadTextSegment(
+                    text=arguments,
+                    kind=kind,
+                    role=role,
+                    path=f"{path}[{tool_call_index}].function.arguments",
+                )
+            )
 
 
 def _redact_content(content: Any, redact: Callable[[str], str]) -> Any:

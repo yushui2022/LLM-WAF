@@ -12,7 +12,7 @@
 
 # LLM-WAF
 
-Most "LLM firewalls" make you rewrite your agent, break SSE streaming, or ship your prompts to a third-party SaaS. **LLM-WAF doesn't.** Put it in front of any OpenAI-compatible provider, change one `base_url`, and you immediately get prompt-injection blocking, PII / secret redaction, streaming-safe proxying, a JSONL audit log, and a built-in dashboard.
+Most "LLM firewalls" make you rewrite your agent, break SSE streaming, or ship your prompts to a third-party SaaS. **LLM-WAF doesn't.** Put it in front of an OpenAI-compatible provider, change one `base_url`, and you immediately get prompt-injection blocking, PII / secret redaction, streaming-safe proxying, a JSONL audit log, and a built-in dashboard. Native Anthropic Messages support is also available for non-streaming requests.
 
 ## Why another LLM gateway?
 
@@ -28,6 +28,7 @@ Most "LLM firewalls" make you rewrite your agent, break SSE streaming, or ship y
 
 - `POST /v1/chat/completions` with **streaming and non-streaming** proxying
 - Works with any OpenAI-compatible upstream (OpenAI, DeepSeek, Moonshot, Groq, Ollama, vLLM, …)
+- `POST /v1/messages` for Anthropic native **non-streaming** requests, with schema-aware input/output scanning and redaction
 - **Input blocking** for high-confidence prompt injection and jailbreak patterns
 - **Input redaction** for email, Chinese mobile, Chinese ID, common API keys, generic secret assignments, GitHub tokens, AWS access keys, and private keys
 - **Output redaction** for secrets / PII and simple system-prompt leak hints
@@ -52,8 +53,8 @@ Being upfront so you know what you're getting:
 
 - Streaming output scanning uses a bounded rolling window. Once an SSE frame has been forwarded to the client, those bytes cannot be rewritten. As of `STREAM_HOLD_BACK_FRAMES=1` (the default), the gateway delays one frame so that a finding completed by the next frame can still redact the held fragment. Set `STREAM_HOLD_BACK_FRAMES=0` if you need lowest first-token latency and accept that single-frame leaks of cross-frame findings can slip through; set `>=2` for stricter leak control at the cost of further latency.
 - Rate limiting defaults to local memory. Use `RATE_LIMIT_BACKEND=redis` for multi-replica deployments.
-- Anthropic / Gemini **native** protocols are not supported (use their OpenAI-compatible endpoints). See [docs/protocol-support.md](docs/protocol-support.md) for the current support matrix.
-- Known unscanned generation routes such as `/v1/messages`, `/v1/responses`, and `/v1/completions` are blocked by default instead of being silently proxied without WAF scanning.
+- Anthropic native `/v1/messages` is supported for non-streaming requests. Anthropic native streaming and Gemini native protocols are not fully supported yet; use OpenAI-compatible endpoints for those modes. See [docs/protocol-support.md](docs/protocol-support.md) for the current support matrix.
+- Known unscanned generation routes such as `/v1/responses` and `/v1/completions` are blocked by default instead of being silently proxied without WAF scanning.
 - Chinese prompt-injection coverage has expanded, but recall still depends on real attack samples and benign hard negatives. Keep validating category-level recall before trusting high-risk deployments.
 - The default detector is rule-driven. Optional semantic scanners are available, but the base install stays lightweight and deterministic by default.
 - In streaming mode, `FAIL_CLOSED=true` can terminate the SSE stream with an error event after headers have already been sent.
@@ -66,7 +67,7 @@ Some reviewer concerns are real product trade-offs rather than simple bugs. The 
 |---|---|---|---|
 | Chinese prompt-injection coverage | The default rule file has 27 total rules: 17 input rules, 12 Chinese input attack rules, and 15 Chinese-related rules including Chinese PII and output leak detection. | Conservative rules reduce false positives, but high recall needs more real Chinese attack samples, multilingual bypasses, and benign hard negatives. | Expand the Chinese eval set, add more indirect-injection and mixed-language samples, and keep category-level recall gates in CI. |
 | Streaming safety vs. latency | `STREAM_HOLD_BACK_FRAMES=1` is the default. It delays one SSE frame so cross-frame findings can still redact held content. | Already-forwarded stream bytes cannot be recalled. Zero hold-back gives lower latency but weaker cross-frame leak protection. | Publish TTFB / p95 overhead benchmarks and document recommended settings for low-latency vs. high-safety routes. |
-| Protocol and semantic depth | OpenAI-compatible chat-completions traffic is the primary scanned surface. Unsupported generation routes are blocked by default. Semantic scanners are optional and default-off. | A narrow, well-tested protocol surface is safer than silently passing unscanned native traffic. Optional semantic scanning keeps the base gateway predictable and dependency-light. | Add native Anthropic / Gemini extractors with contract tests, and benchmark semantic scanner recall against the regex-miss eval slice. |
+| Protocol and semantic depth | OpenAI-compatible chat-completions traffic is the primary scanned surface, including DeepSeek through its OpenAI-compatible API. Anthropic native `/v1/messages` non-streaming requests now have schema-aware scanning; Anthropic native streaming, Gemini native, `/v1/responses`, and legacy `/v1/completions` remain blocked or unsupported unless explicitly bypassed. Semantic scanners are optional and default-off. | A narrow, well-tested protocol surface is safer than silently passing unscanned native traffic. Native adapters must preserve provider schemas and scan tool/result fields before they are enabled. Optional semantic scanning keeps the base gateway predictable and dependency-light. | Add Anthropic native streaming with event fixtures and cross-frame leakage tests, add Gemini native extraction after that, and benchmark semantic scanner recall against the regex-miss eval slice. |
 
 ## Quick start
 
@@ -105,7 +106,7 @@ Operational endpoints:
 
 ### Picking the upstream URL
 
-`UPSTREAM_BASE_URL` should be **exactly the `base_url` you'd pass to an OpenAI-compatible SDK** — including the `/v1` segment when the provider expects it.
+`UPSTREAM_BASE_URL` should be **exactly the `base_url` you'd pass to an OpenAI-compatible SDK**. SDK-style URLs with `/v1` and origin-style URLs without `/v1` are both accepted; LLM-WAF avoids duplicating `/v1` when the upstream base URL already includes it.
 
 ```env
 # OpenAI
@@ -118,7 +119,7 @@ UPSTREAM_BASE_URL=https://api.deepseek.com/v1
 UPSTREAM_BASE_URL=http://host.docker.internal:11434/v1
 ```
 
-LLM-WAF's native WAF extraction is currently scoped to OpenAI-compatible chat completions. Safe non-generation `/v1/*` routes are passthrough with auth, rate-limit, and audit only. Known unscanned generation routes are rejected by default so they do not silently bypass the firewall. See [docs/protocol-support.md](docs/protocol-support.md) before placing it in front of native Anthropic or Gemini clients.
+LLM-WAF's strongest WAF extraction is still the OpenAI-compatible chat-completions path. DeepSeek is covered there because it uses the OpenAI-compatible schema. Anthropic native `/v1/messages` non-streaming requests have a dedicated adapter; native Anthropic streaming and Gemini clients should still use an OpenAI-compatible endpoint until their native adapters are complete. Safe non-generation `/v1/*` routes are passthrough with auth, rate-limit, and audit only. Known unscanned generation routes are rejected by default so they do not silently bypass the firewall. See [docs/protocol-support.md](docs/protocol-support.md) for the current matrix.
 
 ## Use from the OpenAI SDK
 
@@ -143,6 +144,19 @@ for chunk in response:
 ```
 
 If `UPSTREAM_API_KEY` is set on the gateway, LLM-WAF overwrites the upstream `Authorization` header. If empty, the client's original `Authorization` is forwarded.
+
+## Use native Anthropic messages
+
+Native Anthropic support is intentionally limited to non-streaming `/v1/messages` until stream-event scanning is implemented:
+
+```bash
+curl http://localhost:8080/v1/messages \
+  -H "content-type: application/json" \
+  -H "anthropic-version: 2023-06-01" \
+  -d '{"model":"claude-test","max_tokens":64,"messages":[{"role":"user","content":"hello"}]}'
+```
+
+Set `UPSTREAM_BASE_URL=https://api.anthropic.com/v1`. If `UPSTREAM_API_KEY` is set on the gateway, LLM-WAF sends it upstream as `x-api-key`; otherwise the client's original `x-api-key` header is forwarded.
 
 ## Optional gateway API keys
 
@@ -423,7 +437,7 @@ Audit events include:
 
 | Variable | Default | Description |
 |---|---:|---|
-| `UPSTREAM_BASE_URL` | `https://api.openai.com/v1` | Provider base URL — exactly what you'd pass to an OpenAI-compatible SDK. |
+| `UPSTREAM_BASE_URL` | `https://api.openai.com/v1` | Provider base URL. SDK-style URLs with `/v1` and origin-style URLs without `/v1` are accepted. |
 | `UPSTREAM_API_KEY` | empty | Upstream provider key. If empty, the client's `Authorization` header is forwarded. |
 | `LLM_WAF_PORT` | `8080` | Gateway port. |
 | `MAX_BODY_BYTES` | `2000000` | Maximum request body size. |
@@ -432,7 +446,7 @@ Audit events include:
 | `RATE_LIMIT_PER_MINUTE` | `0` | Per-principal request limit. `0` disables rate limiting. |
 | `RATE_LIMIT_BACKEND` | `memory` | Rate-limit backend: `memory` for single instance, `redis` for shared multi-instance limits. |
 | `REDIS_URL` | empty | Redis connection URL required when `RATE_LIMIT_BACKEND=redis`. |
-| `ALLOW_UNSCANNED_GENERATION_PASSTHROUGH` | `false` | When `false`, known generation routes that are not scanned by LLM-WAF, such as `/v1/messages`, `/v1/responses`, and `/v1/completions`, return `501` instead of raw passthrough. |
+| `ALLOW_UNSCANNED_GENERATION_PASSTHROUGH` | `false` | When `false`, known generation routes that are not scanned by LLM-WAF, such as `/v1/responses` and `/v1/completions`, return `501` instead of raw passthrough. Anthropic native `/v1/messages` non-streaming requests are scanned; native streaming is blocked until stream scanning is implemented. |
 | `POLICY_PATH` | `config/policy.yaml` | YAML route policy file. Missing file falls back to env/default settings. |
 | `RULES_PATH` | `config/rules.yaml` | YAML scanner rule file. Missing or invalid files fall back to built-in Python rules. |
 | `PRICING_PATH` | `config/pricing.yaml` | YAML model pricing file for cost estimates. |

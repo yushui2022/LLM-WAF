@@ -33,10 +33,15 @@ from app.pricing import PricingStore
 from app.security.models import Finding, ScanResult
 from app.security.payload import (
     PayloadTextSegment,
+    extract_anthropic_request_segments,
+    extract_anthropic_response_text,
+    extract_anthropic_usage,
     extract_request_segments,
     extract_response_text,
     extract_usage,
     json_dumps,
+    redact_anthropic_request_body,
+    redact_anthropic_response_body,
     redact_request_body,
     redact_response_body,
     redact_sse_json_payload,
@@ -136,7 +141,6 @@ _warn_deprecated_disabled_rules()
 
 UNSCANNED_GENERATION_ROUTES = {
     "completions": "legacy OpenAI completions",
-    "messages": "Anthropic native messages",
     "responses": "OpenAI responses",
 }
 
@@ -147,6 +151,7 @@ async def index() -> dict[str, str]:
         "service": settings.service_name,
         "version": "0.1.0",
         "chat_completions": "/v1/chat/completions",
+        "anthropic_messages": "/v1/messages",
         "dashboard": "/dashboard",
         "health": "/health",
         "metrics": "/metrics",
@@ -281,6 +286,120 @@ async def chat_completions(request: Request) -> Response:
     if stream:
         return await _proxy_streaming(request, trace_id, started, forwarded_body, event, findings, input_redacted, auth, policy)
     return await _proxy_buffered(request, trace_id, started, forwarded_body, event, findings, input_redacted, auth, policy)
+
+
+@app.post("/v1/messages")
+async def anthropic_messages(request: Request) -> Response:
+    trace_id = _trace_id()
+    started = time.perf_counter()
+    policy = policy_store.for_path(request.url.path)
+    auth = gateway_auth.authenticate_headers(request.headers)
+    if not auth.allowed:
+        event = _base_event(trace_id, request, started, model="", stream=False, auth=auth, policy=policy)
+        event.update({"protocol": "anthropic_native", "decision": "blocked", "status_code": 401, "reason": auth.reason})
+        _audit(event, policy)
+        return _error_response(
+            trace_id,
+            401,
+            "unauthorized",
+            "Missing or invalid gateway API key.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    rate_limit = rate_limiter.check(auth.principal)
+    if not rate_limit.allowed:
+        event = _base_event(trace_id, request, started, model="", stream=False, auth=auth, policy=policy, rate_limit=rate_limit)
+        event.update({"protocol": "anthropic_native", "decision": "blocked", "status_code": 429, "reason": "rate_limited"})
+        _audit(event, policy)
+        return _error_response(
+            trace_id,
+            429,
+            "rate_limited",
+            "Gateway rate limit exceeded.",
+            headers={"Retry-After": str(rate_limit.retry_after_seconds)},
+        )
+
+    raw_body = await request.body()
+    if len(raw_body) > settings.max_body_bytes:
+        event = _base_event(trace_id, request, started, model="", stream=False, auth=auth, policy=policy, rate_limit=rate_limit)
+        event.update({"protocol": "anthropic_native", "decision": "blocked", "status_code": 413, "reason": "request_too_large"})
+        _audit(event, policy)
+        return _error_response(trace_id, 413, "request_too_large", "Request body exceeds MAX_BODY_BYTES.")
+
+    try:
+        body = json.loads(raw_body)
+    except json.JSONDecodeError:
+        event = _base_event(trace_id, request, started, model="", stream=False, auth=auth, policy=policy, rate_limit=rate_limit)
+        event.update({"protocol": "anthropic_native", "decision": "blocked", "status_code": 400, "reason": "invalid_json"})
+        _audit(event, policy)
+        return _error_response(trace_id, 400, "invalid_json", "Invalid JSON request body.")
+    if not isinstance(body, dict):
+        event = _base_event(trace_id, request, started, model="", stream=False, auth=auth, policy=policy, rate_limit=rate_limit)
+        event.update({"protocol": "anthropic_native", "decision": "blocked", "status_code": 400, "reason": "invalid_json"})
+        _audit(event, policy)
+        return _error_response(trace_id, 400, "invalid_json", "JSON request body must be an object.")
+
+    stream = bool(body.get("stream"))
+    model = str(body.get("model", ""))
+    request_segments = extract_anthropic_request_segments(body)
+    request_text = _join_payload_text(request_segments)
+    input_scan_text = _request_scan_text(request_segments, policy)
+    event = _base_event(trace_id, request, started, model=model, stream=stream, auth=auth, policy=policy, rate_limit=rate_limit)
+    event["protocol"] = "anthropic_native"
+    event["prompt_sha256"] = _sha256(request_text)
+    event["input_segments"] = _payload_segment_summary(request_segments, policy)
+    if input_scan_text != request_text:
+        event["scanned_prompt_sha256"] = _sha256(input_scan_text)
+
+    input_scan = None
+    if policy.input_scanning:
+        scanner_started = time.perf_counter()
+        input_scan = await _scan_input_segments_safely(request_segments, policy, event)
+        event["input_scanner_latency_ms"] = _elapsed_ms(scanner_started)
+    if input_scan is None and event.get("reason") == "scanner_failure" and settings.fail_closed:
+        event.update({"decision": "blocked", "status_code": 503, **_finding_fields([])})
+        _audit(event, policy)
+        return _error_response(trace_id, 503, "scanner_failure", "Input scanner failed and FAIL_CLOSED is enabled.")
+
+    findings = input_scan.to_audit_findings() if input_scan else []
+    if input_scan and input_scan.blocked and policy.block_prompt_injection:
+        event.update(
+            {
+                "decision": "blocked",
+                "status_code": policy.blocked_status_code,
+                **_finding_fields(findings),
+            }
+        )
+        _audit(event, policy)
+        return _blocked_response(trace_id, findings, policy)
+
+    if stream:
+        event.update(
+            {
+                "decision": "blocked",
+                "status_code": 501,
+                "reason": "unsupported_anthropic_streaming",
+                "latency_ms": _elapsed_ms(started),
+                **_finding_fields(findings),
+            }
+        )
+        _audit(event, policy)
+        return _error_response(
+            trace_id,
+            501,
+            "unsupported_protocol",
+            "Anthropic native streaming is not scanned yet. Set stream=false or use OpenAI-compatible /v1/chat/completions.",
+        )
+
+    forwarded_body = body
+    input_redacted = bool(input_scan and input_scan.redacted and policy.redact_inputs)
+    if input_redacted:
+        forwarded_body = redact_anthropic_request_body(
+            body,
+            lambda text: scanner.redact_sensitive(text, policy.disabled_rules, policy.disabled_categories),
+        )
+
+    return await _proxy_anthropic_buffered(request, trace_id, started, forwarded_body, event, findings, input_redacted, auth, policy)
 
 
 @app.api_route("/v1/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
@@ -452,6 +571,114 @@ async def _proxy_buffered(
                 output_redacted = bool(output_scan.redacted and policy.redact_outputs)
                 if output_redacted:
                     response_body = redact_response_body(
+                        response_body,
+                        lambda text: scanner.redact_output(text, policy.disabled_rules, policy.disabled_categories),
+                    )
+                    content = json_dumps(response_body).encode("utf-8")
+                    response_headers.pop("content-length", None)
+        except (ValueError, TypeError):
+            pass
+
+    findings = input_findings + output_findings
+    decision = _decision(blocked=False, redacted=input_redacted or output_redacted)
+    event.update(
+        {
+            "decision": decision,
+            "status_code": upstream.status_code,
+            "upstream_status": upstream.status_code,
+            "upstream_latency_ms": upstream_latency_ms,
+            "latency_ms": _elapsed_ms(started),
+            **_finding_fields(findings),
+            "input_redacted": input_redacted,
+            "output_redacted": output_redacted,
+        }
+    )
+    if output_scanner_latency_ms:
+        event["output_scanner_latency_ms"] = round(output_scanner_latency_ms, 2)
+    if usage:
+        event["usage"] = usage
+        cost = pricing_store.estimate(str(event.get("model", "")), usage)
+        if cost:
+            event["cost"] = cost
+    _audit(event, policy)
+
+    return Response(
+        content=content,
+        status_code=upstream.status_code,
+        headers=response_headers,
+        media_type=upstream.headers.get("content-type"),
+    )
+
+
+async def _proxy_anthropic_buffered(
+    request: Request,
+    trace_id: str,
+    started: float,
+    body: dict[str, Any],
+    event: dict[str, Any],
+    input_findings: list[dict[str, Any]],
+    input_redacted: bool,
+    auth: AuthResult,
+    policy: RoutePolicy,
+) -> Response:
+    upstream_url = _upstream_url(request.url.path)
+    headers = _forward_anthropic_headers(request, trace_id, auth)
+
+    upstream_started = time.perf_counter()
+    try:
+        async with httpx.AsyncClient(timeout=settings.upstream_timeout_seconds) as client:
+            upstream = await client.post(upstream_url, params=request.query_params, headers=headers, json=body)
+    except httpx.HTTPError as exc:
+        event.update(
+            {
+                "decision": "error",
+                "status_code": 502,
+                "reason": str(exc),
+                "upstream_latency_ms": _elapsed_ms(upstream_started),
+                **_finding_fields(input_findings),
+                "latency_ms": _elapsed_ms(started),
+            }
+        )
+        _audit(event, policy)
+        return _error_response(trace_id, 502, "upstream_error", str(exc))
+    upstream_latency_ms = _elapsed_ms(upstream_started)
+
+    content = upstream.content
+    response_headers = _response_headers(upstream)
+    output_findings: list[dict[str, Any]] = []
+    output_redacted = False
+    output_scanner_latency_ms = 0.0
+    usage: dict[str, int] = {}
+
+    if _looks_like_json(upstream):
+        try:
+            response_body = upstream.json()
+            usage = extract_anthropic_usage(response_body)
+            if policy.output_scanning:
+                output_text = extract_anthropic_response_text(response_body)
+                scanner_started = time.perf_counter()
+                output_scan = await _scan_output_safely(output_text, policy, event)
+                output_scanner_latency_ms += _elapsed_ms(scanner_started)
+                if output_scan is None and settings.fail_closed:
+                    event.update(
+                        {
+                            "decision": "blocked",
+                            "status_code": 503,
+                            "upstream_status": upstream.status_code,
+                            "upstream_latency_ms": upstream_latency_ms,
+                            "output_scanner_latency_ms": round(output_scanner_latency_ms, 2),
+                            "latency_ms": _elapsed_ms(started),
+                            **_finding_fields(input_findings),
+                        }
+                    )
+                    _audit(event, policy)
+                    return _error_response(trace_id, 503, "scanner_failure", "Output scanner failed and FAIL_CLOSED is enabled.")
+                if output_scan is None:
+                    output_scan = ScanResult()
+                output_findings = output_scan.to_audit_findings()
+                output_redacted = bool(output_scan.redacted and policy.redact_outputs)
+                if output_redacted:
+                    response_body = redact_anthropic_response_body(
                         response_body,
                         lambda text: scanner.redact_output(text, policy.disabled_rules, policy.disabled_categories),
                     )
@@ -806,12 +1033,12 @@ def _redact_sse_frame_text(frame: str, replacement: str) -> str:
 
 
 def _upstream_url(request_path: str) -> str:
-    path = request_path
-    if path == "/v1":
-        path = ""
-    elif path.startswith("/v1/"):
-        path = path[3:]
-    return settings.upstream_base_url.rstrip("/") + path
+    base_url = settings.upstream_base_url.rstrip("/")
+    path = "/" + request_path.lstrip("/")
+    base_path = urlsplit(base_url).path.rstrip("/")
+    if base_path.endswith("/v1") and path.startswith("/v1/"):
+        path = path[len("/v1") :]
+    return base_url + path
 
 
 def _is_unscanned_generation_route(method: str, path: str) -> bool:
@@ -830,6 +1057,15 @@ def _forward_headers(request: Request, trace_id: str, auth: AuthResult) -> dict[
     if settings.upstream_api_key:
         headers["authorization"] = f"Bearer {settings.upstream_api_key}"
     headers["x-llm-waf-trace-id"] = trace_id
+    return headers
+
+
+def _forward_anthropic_headers(request: Request, trace_id: str, auth: AuthResult) -> dict[str, str]:
+    headers = _forward_headers(request, trace_id, auth)
+    if settings.upstream_api_key:
+        headers.pop("authorization", None)
+        headers["x-api-key"] = settings.upstream_api_key
+    headers.setdefault("anthropic-version", "2023-06-01")
     return headers
 
 
@@ -933,6 +1169,7 @@ def _structured_log_event(event: dict[str, Any]) -> dict[str, Any]:
         "ts",
         "method",
         "path",
+        "protocol",
         "model",
         "stream",
         "principal",

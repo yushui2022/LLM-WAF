@@ -45,6 +45,39 @@ def redact_request_body(body: dict[str, Any], redact: Callable[[str], str]) -> d
     return redacted
 
 
+def extract_anthropic_request_text(body: dict[str, Any]) -> str:
+    return "\n".join(segment.text for segment in extract_anthropic_request_segments(body) if segment.text)
+
+
+def extract_anthropic_request_segments(body: dict[str, Any]) -> list[PayloadTextSegment]:
+    segments: list[PayloadTextSegment] = []
+    _collect_anthropic_content_segments(body.get("system"), segments, "system_content", "system", "system")
+    for message_index, message in enumerate(body.get("messages", []) or []):
+        if not isinstance(message, dict):
+            continue
+        role = str(message.get("role", "")).strip()
+        _collect_anthropic_content_segments(
+            message.get("content"),
+            segments,
+            "message_content",
+            role,
+            f"messages[{message_index}].content",
+        )
+    return segments
+
+
+def redact_anthropic_request_body(body: dict[str, Any], redact: Callable[[str], str]) -> dict[str, Any]:
+    redacted = copy.deepcopy(body)
+    if "system" in redacted:
+        redacted["system"] = _redact_anthropic_content(redacted.get("system"), redact)
+    for message in redacted.get("messages", []) or []:
+        if not isinstance(message, dict):
+            continue
+        if "content" in message:
+            message["content"] = _redact_anthropic_content(message.get("content"), redact)
+    return redacted
+
+
 def extract_response_text(body: dict[str, Any]) -> str:
     return "\n".join(segment.text for segment in extract_response_segments(body) if segment.text)
 
@@ -98,6 +131,33 @@ def extract_usage(body: dict[str, Any]) -> dict[str, int]:
     return result
 
 
+def extract_anthropic_response_text(body: dict[str, Any]) -> str:
+    return "\n".join(segment.text for segment in extract_anthropic_response_segments(body) if segment.text)
+
+
+def extract_anthropic_response_segments(body: dict[str, Any]) -> list[PayloadTextSegment]:
+    segments: list[PayloadTextSegment] = []
+    _collect_anthropic_content_segments(body.get("content"), segments, "response_content", "assistant", "content")
+    return segments
+
+
+def extract_anthropic_usage(body: dict[str, Any]) -> dict[str, int]:
+    usage = body.get("usage")
+    if not isinstance(usage, dict):
+        return {}
+
+    result: dict[str, int] = {}
+    input_tokens = _coerce_token_count(usage.get("input_tokens"))
+    output_tokens = _coerce_token_count(usage.get("output_tokens"))
+    if input_tokens is not None:
+        result["prompt_tokens"] = input_tokens
+    if output_tokens is not None:
+        result["completion_tokens"] = output_tokens
+    if input_tokens is not None or output_tokens is not None:
+        result["total_tokens"] = (input_tokens or 0) + (output_tokens or 0)
+    return result
+
+
 def redact_response_body(body: dict[str, Any], redact: Callable[[str], str]) -> dict[str, Any]:
     redacted = copy.deepcopy(body)
     for choice in redacted.get("choices", []) or []:
@@ -111,6 +171,13 @@ def redact_response_body(body: dict[str, Any], redact: Callable[[str], str]) -> 
         if isinstance(delta, dict):
             delta["content"] = _redact_content(delta.get("content"), redact)
             _redact_tool_call_arguments(delta.get("tool_calls"), redact)
+    return redacted
+
+
+def redact_anthropic_response_body(body: dict[str, Any], redact: Callable[[str], str]) -> dict[str, Any]:
+    redacted = copy.deepcopy(body)
+    if "content" in redacted:
+        redacted["content"] = _redact_anthropic_content(redacted.get("content"), redact)
     return redacted
 
 
@@ -176,6 +243,40 @@ def _collect_tool_call_argument_segments(tool_calls: Any, segments: list[Payload
             )
 
 
+def _collect_anthropic_content_segments(
+    content: Any,
+    segments: list[PayloadTextSegment],
+    kind: str,
+    role: str,
+    path: str,
+) -> None:
+    if isinstance(content, str):
+        segments.append(PayloadTextSegment(text=content, kind=kind, role=role, path=path))
+        return
+    if not isinstance(content, list):
+        return
+    for item_index, item in enumerate(content):
+        if not isinstance(item, dict):
+            continue
+        item_type = item.get("type")
+        item_path = f"{path}[{item_index}]"
+        if item_type == "text" and isinstance(item.get("text"), str):
+            segments.append(PayloadTextSegment(text=item["text"], kind=kind, role=role, path=f"{item_path}.text"))
+            continue
+        if item_type == "tool_result":
+            _collect_anthropic_content_segments(item.get("content"), segments, "tool_result", role, f"{item_path}.content")
+            continue
+        if item_type == "tool_use" and "input" in item:
+            segments.append(
+                PayloadTextSegment(
+                    text=json_dumps(item["input"]),
+                    kind="tool_call_arguments" if not kind.startswith("response_") else "response_tool_call_arguments",
+                    role=role,
+                    path=f"{item_path}.input",
+                )
+            )
+
+
 def _redact_content(content: Any, redact: Callable[[str], str]) -> Any:
     new_content, _ = _redact_content_with_flag(content, redact)
     return new_content
@@ -202,6 +303,39 @@ def _redact_content_with_flag(content: Any, redact: Callable[[str], str]) -> tup
     return content, False
 
 
+def _redact_anthropic_content(content: Any, redact: Callable[[str], str]) -> Any:
+    if isinstance(content, str):
+        return redact(content)
+    if not isinstance(content, list):
+        return content
+
+    new_items = []
+    for item in content:
+        if not isinstance(item, dict):
+            new_items.append(item)
+            continue
+        new_item = copy.deepcopy(item)
+        item_type = new_item.get("type")
+        if item_type == "text" and isinstance(new_item.get("text"), str):
+            new_item["text"] = redact(new_item["text"])
+        elif item_type == "tool_result":
+            new_item["content"] = _redact_anthropic_content(new_item.get("content"), redact)
+        elif item_type == "tool_use" and "input" in new_item:
+            new_item["input"] = _redact_nested_strings(new_item["input"], redact)
+        new_items.append(new_item)
+    return new_items
+
+
+def _redact_nested_strings(value: Any, redact: Callable[[str], str]) -> Any:
+    if isinstance(value, str):
+        return redact(value)
+    if isinstance(value, list):
+        return [_redact_nested_strings(item, redact) for item in value]
+    if isinstance(value, dict):
+        return {key: _redact_nested_strings(item, redact) for key, item in value.items()}
+    return value
+
+
 def _redact_tool_call_arguments(tool_calls: Any, redact: Callable[[str], str]) -> bool:
     if not isinstance(tool_calls, list):
         return False
@@ -221,6 +355,16 @@ def _redact_tool_call_arguments(tool_calls: Any, redact: Callable[[str], str]) -
             function["arguments"] = redacted
             changed = True
     return changed
+
+
+def _coerce_token_count(value: Any) -> int | None:
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return None
 
 
 def json_dumps(data: Any) -> str:

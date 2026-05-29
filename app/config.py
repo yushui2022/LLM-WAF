@@ -53,7 +53,8 @@ class Settings:
     bind_port: int = _env_int("LLM_WAF_PORT", 8080)
 
     # This should be the provider base_url a user would normally configure in
-    # their SDK, for example https://api.openai.com/v1 or https://api.deepseek.com.
+    # their SDK, for example https://api.openai.com/v1, https://api.deepseek.com,
+    # or https://api.anthropic.com/v1 for native non-streaming messages.
     upstream_base_url: str = os.getenv("UPSTREAM_BASE_URL", "https://api.openai.com/v1")
     upstream_api_key: str = os.getenv("UPSTREAM_API_KEY", "")
     upstream_timeout_seconds: float = _env_float("UPSTREAM_TIMEOUT_SECONDS", 90.0)

@@ -285,6 +285,10 @@ The order below is chosen so that safety-critical, low-risk-of-regression items 
 - Done: basic issue templates and a PR template are in place.
 - Pending: CONTRIBUTING guidance.
 
+**Progress (2026-05-29):**
+- Done: `SECURITY.md`, `docs/threat-model.md`, `CONTRIBUTING.md`, and issue / PR
+  templates are in place.
+
 **Exit criteria:**
 - `scripts/redos_probe.py` finishes under 1s per rule on the supplied adversarial corpus.
 - Rule load happens once at import time (verifiable via a unit test that asserts `rule.regex is rule.regex`).

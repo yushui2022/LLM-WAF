@@ -583,6 +583,7 @@ python scripts/audit_to_eval_candidates.py --audit var/audit/events.jsonl --outp
 This intentionally does **not** auto-update `config/rules.yaml`. It writes metadata-only candidates with `label: review`; maintainers should add reviewed text samples to the eval sets and pass the category-level eval gates before changing rules.
 
 ## Contributing
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the local workflow and reporting paths.
 
 Issues and PRs welcome — especially:
 

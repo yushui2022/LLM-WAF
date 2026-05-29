@@ -1,46 +1,53 @@
 # Contributing
 
-LLM-WAF changes should keep the firewall behavior measurable and explainable.
+Thanks for improving LLM-WAF.
 
 ## Local Setup
 
-```bash
-python -m venv .venv
-. .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -e ".[dev]"
-```
-
-## Quality Gates
-
-Run these before opening a PR:
+Use the same commands the CI gate runs:
 
 ```bash
 python -m ruff check .
 python -m ruff format --check .
 python -m mypy
-python -B -m coverage run -m unittest discover -s tests
-python -B -m coverage report
-python -B scripts/redos_probe.py
-python -B scripts/evaluate.py --direction input --min-precision 0.95 --min-recall 0.95 --min-category-recall 0.95
-python -B scripts/evaluate.py --direction output --min-precision 0.95 --min-recall 0.95 --min-category-recall 0.95
+python -B -m unittest discover -s tests
 ```
 
-Coverage is currently report-only. Do not lower coverage intentionally; add focused tests when touching WAF behavior.
+If you change request-path behavior, scanner logic, or audit output, also run
+the evaluation scripts in `scripts/` and update the matching eval set in the
+same change.
 
-## Scanner Rule Changes
+## Change Shape
 
-Rule or normalization changes must include eval samples. Add malicious examples and nearby benign hard negatives where possible.
+- Keep changes small and focused.
+- Update README or docs when user-facing behavior changes.
+- Keep secrets, prompts, and raw evidence out of logs, metrics, and audit
+  output.
+- Add tests for any new rule, sink, or protocol behavior.
 
-Use these docs:
+## Reporting False Positives
 
-- `docs/rule-quality.md` for rule maturity, ReDoS expectations, false-positive reports, and bypass reports.
-- `docs/protocol-support.md` for supported protocols and unsupported native-route behavior.
+Use the `false_positive` issue template for deterministic rule misses or
+overblocking.
 
-## Pull Request Shape
+Include:
 
-Keep PRs focused:
+- route or endpoint
+- redacted payload
+- expected behavior
+- actual finding or block reason
 
-- One behavior change per PR.
-- README and docs updated with user-visible changes.
-- No heavy default dependencies.
-- No raw secrets in logs, metrics, audit output, screenshots, or examples.
+## Reporting Bypasses
+
+Use the `bypass_report` issue template for prompt-injection bypasses or other
+security gaps.
+
+If the report may disclose sensitive data, open a private security advisory
+instead.
+
+## Review Checklist
+
+- [ ] tests pass
+- [ ] evals updated when behavior changed
+- [ ] docs updated when users would notice
+- [ ] audit and metrics remain redaction-safe

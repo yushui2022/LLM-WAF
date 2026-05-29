@@ -41,6 +41,7 @@ from app.security.payload import (
 from app.security.rules import RULE_SET, deprecated_alias_map
 from app.security.scanner import SecurityScanner
 from app.security.semantic import HttpSemanticScanner, SemanticScanner, merge_scan_results
+from app.security.semantic_local import LocalSemanticConfig, LocalSemanticScanner
 
 app = FastAPI(
     title="LLM-WAF",
@@ -57,10 +58,26 @@ if settings.enable_cors:
     )
 
 scanner = SecurityScanner()
-semantic_scanners: tuple[SemanticScanner, ...] = (
-    (HttpSemanticScanner(settings.semantic_scanner_url, settings.semantic_scanner_timeout_seconds),)
-    if settings.semantic_scanner_url
-    else ()
+semantic_scanners: tuple[SemanticScanner, ...] = tuple(
+    scanner
+    for scanner in (
+        HttpSemanticScanner(settings.semantic_scanner_url, settings.semantic_scanner_timeout_seconds)
+        if settings.semantic_scanner_url
+        else None,
+        LocalSemanticScanner(
+            LocalSemanticConfig(
+                model_path=settings.semantic_local_model_path,
+                tokenizer_path=settings.semantic_local_tokenizer_path,
+                threshold=settings.semantic_local_threshold,
+                action=settings.semantic_local_action,
+                max_chars=settings.semantic_local_max_chars,
+                timeout_seconds=settings.semantic_local_timeout_seconds,
+            )
+        )
+        if settings.semantic_local_enabled
+        else None,
+    )
+    if scanner is not None
 )
 audit_log = AuditLog(settings.audit_log_path)
 gateway_auth = GatewayAuth(settings.gateway_api_keys, settings.gateway_api_key_header)

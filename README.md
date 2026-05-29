@@ -246,6 +246,8 @@ The scanner may return:
 
 Semantic findings are merged with local rule findings and participate in the same `block` / `redact` / audit flow. Keep this hook behind your own trusted service; sending prompt text to a third-party scanner has privacy implications.
 
+For local-only deployments, LLM-WAF also has an optional default-off semantic classifier adapter. It requires `pip install "llm-waf[semantic]"` and local ONNX/tokenizer files; no model is bundled or downloaded. See [docs/semantic-local.md](docs/semantic-local.md).
+
 ## Try it: blocking
 
 ```bash
@@ -366,6 +368,13 @@ Audit events include:
 | `STREAM_HOLD_BACK_FRAMES` | `1` | SSE frame hold-back. The gateway delays that many frames and can redact held fragments if a later frame completes a cross-frame finding. Set `0` for lowest first-token latency at the cost of single-frame cross-frame leaks. |
 | `SEMANTIC_SCANNER_URL` | empty | Optional HTTP scanner endpoint for semantic/model-based findings. Empty disables the hook. |
 | `SEMANTIC_SCANNER_TIMEOUT_SECONDS` | `2.0` | Timeout for the optional semantic scanner. |
+| `SEMANTIC_LOCAL` | `false` | Enable optional local ONNX semantic classifier. Requires `llm-waf[semantic]` and local model files. |
+| `SEMANTIC_LOCAL_MODEL_PATH` | empty | ONNX model path for local semantic scanning. |
+| `SEMANTIC_LOCAL_TOKENIZER_PATH` | empty | tokenizer.json path for local semantic scanning. |
+| `SEMANTIC_LOCAL_THRESHOLD` | `0.85` | Minimum score required to emit a local semantic finding. |
+| `SEMANTIC_LOCAL_ACTION` | `log_only` | Input action for local semantic findings: `log_only` or `block`. Output findings remain `log_only`. |
+| `SEMANTIC_LOCAL_MAX_CHARS` | `4000` | Maximum characters sent to the local semantic model. |
+| `SEMANTIC_LOCAL_TIMEOUT_SECONDS` | `2.0` | Timeout for local semantic inference. |
 | `BLOCKED_STATUS_CODE` | `403` | HTTP status returned when a request is blocked. |
 | `FAIL_CLOSED` | `false` | If scanner execution fails, block input requests and suppress buffered outputs instead of failing open. Streaming outputs terminate with an SSE error event. |
 | `AUDIT_LOG_PATH` | `var/audit/events.jsonl` | JSONL audit log path. |

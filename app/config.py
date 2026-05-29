@@ -77,6 +77,13 @@ class Settings:
     stream_hold_back_frames: int = _env_int("STREAM_HOLD_BACK_FRAMES", 1)
     semantic_scanner_url: str = os.getenv("SEMANTIC_SCANNER_URL", "")
     semantic_scanner_timeout_seconds: float = _env_float("SEMANTIC_SCANNER_TIMEOUT_SECONDS", 2.0)
+    semantic_local_enabled: bool = _env_bool("SEMANTIC_LOCAL", False)
+    semantic_local_model_path: Path = Path(os.getenv("SEMANTIC_LOCAL_MODEL_PATH", ""))
+    semantic_local_tokenizer_path: Path = Path(os.getenv("SEMANTIC_LOCAL_TOKENIZER_PATH", ""))
+    semantic_local_threshold: float = _env_float("SEMANTIC_LOCAL_THRESHOLD", 0.85)
+    semantic_local_action: str = os.getenv("SEMANTIC_LOCAL_ACTION", "log_only")
+    semantic_local_max_chars: int = _env_int("SEMANTIC_LOCAL_MAX_CHARS", 4000)
+    semantic_local_timeout_seconds: float = _env_float("SEMANTIC_LOCAL_TIMEOUT_SECONDS", 2.0)
     blocked_status_code: int = _env_int("BLOCKED_STATUS_CODE", 403)
 
     audit_log_path: Path = Path(os.getenv("AUDIT_LOG_PATH", "var/audit/events.jsonl"))

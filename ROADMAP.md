@@ -280,6 +280,11 @@ The order below is chosen so that safety-critical, low-risk-of-regression items 
 - Add `SCANNER_RULE_TIMEOUT_MS` (default e.g. `50`) and enforce per-rule timeout in `_scan_direct` / `_scan_sensitive`. If stdlib `re` is kept, run scans in a worker thread with a deadline; on timeout, emit a `scanner.timeout` finding and continue.
 - Tighten the worst offenders: bound character classes (`[^\n]{0,60}` instead of `.{0,60}`) and remove `re.DOTALL` from rules that don't actually want newline matching.
 
+**Progress (2026-05-29):**
+- Done: `SECURITY.md` and `docs/threat-model.md` published.
+- Done: basic issue templates and a PR template are in place.
+- Pending: CONTRIBUTING guidance.
+
 **Exit criteria:**
 - `scripts/redos_probe.py` finishes under 1s per rule on the supplied adversarial corpus.
 - Rule load happens once at import time (verifiable via a unit test that asserts `rule.regex is rule.regex`).

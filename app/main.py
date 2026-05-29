@@ -40,7 +40,7 @@ from app.security.payload import (
 )
 from app.security.rules import RULE_SET, deprecated_alias_map
 from app.security.scanner import SecurityScanner
-from app.security.semantic import HttpSemanticScanner, merge_scan_results
+from app.security.semantic import HttpSemanticScanner, SemanticScanner, merge_scan_results
 
 app = FastAPI(
     title="LLM-WAF",
@@ -57,8 +57,10 @@ if settings.enable_cors:
     )
 
 scanner = SecurityScanner()
-semantic_scanner = (
-    HttpSemanticScanner(settings.semantic_scanner_url, settings.semantic_scanner_timeout_seconds) if settings.semantic_scanner_url else None
+semantic_scanners: tuple[SemanticScanner, ...] = (
+    (HttpSemanticScanner(settings.semantic_scanner_url, settings.semantic_scanner_timeout_seconds),)
+    if settings.semantic_scanner_url
+    else ()
 )
 audit_log = AuditLog(settings.audit_log_path)
 gateway_auth = GatewayAuth(settings.gateway_api_keys, settings.gateway_api_key_header)
@@ -843,14 +845,7 @@ async def _scan_input_safely(text: str, policy: RoutePolicy, event: dict[str, An
         _record_scanner_error(event, exc)
         return None
 
-    if semantic_scanner is None:
-        return result
-    try:
-        semantic_result = await semantic_scanner.scan_input(text)
-    except Exception as exc:
-        _record_semantic_scanner_error(event, exc)
-        return None if settings.fail_closed else result
-    return merge_scan_results(result, semantic_result)
+    return await _merge_semantic_scans(result, "input", text, event)
 
 
 async def _scan_output_safely(text: str, policy: RoutePolicy, event: dict[str, Any]) -> ScanResult | None:
@@ -860,14 +855,24 @@ async def _scan_output_safely(text: str, policy: RoutePolicy, event: dict[str, A
         _record_scanner_error(event, exc)
         return None
 
-    if semantic_scanner is None:
-        return result
-    try:
-        semantic_result = await semantic_scanner.scan_output(text)
-    except Exception as exc:
-        _record_semantic_scanner_error(event, exc)
-        return None if settings.fail_closed else result
-    return merge_scan_results(result, semantic_result)
+    return await _merge_semantic_scans(result, "output", text, event)
+
+
+async def _merge_semantic_scans(base: ScanResult, direction: str, text: str, event: dict[str, Any]) -> ScanResult | None:
+    if not semantic_scanners:
+        return base
+
+    result = base
+    for semantic_scanner in semantic_scanners:
+        try:
+            semantic_result = await semantic_scanner.scan_input(text) if direction == "input" else await semantic_scanner.scan_output(text)
+        except Exception as exc:
+            _record_semantic_scanner_error(event, exc)
+            if settings.fail_closed:
+                return None
+            continue
+        result = merge_scan_results(result, semantic_result)
+    return result
 
 
 def _record_scanner_error(event: dict[str, Any], exc: Exception) -> str:
@@ -881,6 +886,7 @@ def _record_scanner_error(event: dict[str, Any], exc: Exception) -> str:
 def _record_semantic_scanner_error(event: dict[str, Any], exc: Exception) -> str:
     error = exc.__class__.__name__
     event["semantic_scanner_error"] = error
+    event.setdefault("semantic_scanner_errors", []).append(error)
     event["fail_closed"] = settings.fail_closed
     if settings.fail_closed:
         event["reason"] = "scanner_failure"

@@ -252,9 +252,9 @@ class GatewayTests(unittest.TestCase):
                     ]
                 )
 
-        original_semantic_scanner = main_module.semantic_scanner
+        original_semantic_scanners = main_module.semantic_scanners
         try:
-            main_module.semantic_scanner = SemanticScanner()
+            main_module.semantic_scanners = (SemanticScanner(),)
             response = self.client.post(
                 "/v1/chat/completions",
                 json={"model": "test-model", "messages": [{"role": "user", "content": "benign-looking text"}]},
@@ -262,7 +262,7 @@ class GatewayTests(unittest.TestCase):
             self.assertEqual(response.status_code, 403)
             self.assertEqual(response.json()["error"]["findings"][0]["source"], "semantic")
         finally:
-            main_module.semantic_scanner = original_semantic_scanner
+            main_module.semantic_scanners = original_semantic_scanners
 
 
 if __name__ == "__main__":

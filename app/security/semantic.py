@@ -7,11 +7,19 @@ to any vendor or model.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Protocol
 
 import httpx
 
 from app.security.models import Finding, ScanResult
+
+
+class SemanticScanner(Protocol):
+    async def scan_input(self, text: str) -> ScanResult:
+        """Scan request text and return semantic findings."""
+
+    async def scan_output(self, text: str) -> ScanResult:
+        """Scan response text and return semantic findings."""
 
 
 class HttpSemanticScanner:
@@ -42,12 +50,17 @@ class HttpSemanticScanner:
         )
 
 
-def merge_scan_results(primary: ScanResult, secondary: ScanResult | None) -> ScanResult:
-    if secondary is None:
-        return primary
+def merge_scan_results(primary: ScanResult, *secondary_results: ScanResult | None) -> ScanResult:
+    findings = list(primary.findings)
+    redacted_text = primary.redacted_text
+    for secondary in secondary_results:
+        if secondary is None:
+            continue
+        findings.extend(secondary.findings)
+        redacted_text = secondary.redacted_text or redacted_text
     return ScanResult(
-        findings=primary.findings + secondary.findings,
-        redacted_text=secondary.redacted_text or primary.redacted_text,
+        findings=findings,
+        redacted_text=redacted_text,
     )
 
 

@@ -158,6 +158,12 @@ curl http://localhost:8080/v1/messages \
 
 Set `UPSTREAM_BASE_URL=https://api.anthropic.com/v1`. If `UPSTREAM_API_KEY` is set on the gateway, LLM-WAF sends it upstream as `x-api-key`; otherwise the client's original `x-api-key` header is forwarded.
 
+## Performance baseline
+
+Run `python -B scripts/benchmark.py` to measure buffered and streaming gateway overhead against a fake upstream. The method and current baseline notes are in [docs/performance.md](docs/performance.md).
+
+Current local baseline on this workspace, using the in-process fake upstream and 20 measured iterations, is roughly p95 38-39 ms for buffered paths and p95 49-53 ms for streaming paths.
+
 ## Optional gateway API keys
 
 By default the gateway is open on the port where you run it. For a shared dev box or public endpoint, configure gateway keys:

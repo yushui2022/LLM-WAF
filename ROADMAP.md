@@ -697,6 +697,11 @@ latency regressions.
   p95 latency regresses beyond a documented envelope (mark non-blocking first to
   avoid flaky-perf CI failures).
 
+**Progress (2026-05-29):**
+- Done: in-process fake-upstream benchmark script and methodology doc.
+- Done: current local baseline measured on the Codex desktop workspace.
+- Pending: publish a stable latency budget and CI guardrail once the benchmark has run on at least one more machine.
+
 **Exit criteria:**
 - A single command produces a reproducible latency/throughput report.
 - README cites a concrete "adds ~X ms p95" number with a link to methodology.

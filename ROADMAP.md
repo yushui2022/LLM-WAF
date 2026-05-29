@@ -596,7 +596,8 @@ surfaces is a meaningful coverage expansion and a strong differentiator.
   2026-05-29; gateway policy wiring still pending)
 - Scanner/gateway path: scan these segments through the same rule + semantic
   pipeline, tagging findings with `source="tool_call"` / `source="tool_result"`
-  so audit and policy can treat them distinctly.
+  so audit and policy can treat them distinctly. (partially done 2026-05-29:
+  audit records safe segment counts; per-finding source tagging pending)
 - `app/policy.py`: add per-route toggles
   (`scan_tool_arguments`, `scan_tool_results`, with safe defaults).
 - `tests/`: add malicious-indirect-injection samples (instruction smuggled in a

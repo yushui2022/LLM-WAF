@@ -30,7 +30,8 @@ from app.policy import PolicyStore, RoutePolicy
 from app.pricing import PricingStore
 from app.security.models import ScanResult
 from app.security.payload import (
-    extract_request_text,
+    PayloadTextSegment,
+    extract_request_segments,
     extract_response_text,
     extract_usage,
     json_dumps,
@@ -204,9 +205,11 @@ async def chat_completions(request: Request) -> Response:
 
     stream = bool(body.get("stream"))
     model = str(body.get("model", ""))
-    request_text = extract_request_text(body)
+    request_segments = extract_request_segments(body)
+    request_text = _join_payload_text(request_segments)
     event = _base_event(trace_id, request, started, model=model, stream=stream, auth=auth, policy=policy, rate_limit=rate_limit)
     event["prompt_sha256"] = _sha256(request_text)
+    event["input_segments"] = _payload_segment_summary(request_segments)
 
     input_scan = await _scan_input_safely(request_text, policy, event) if policy.input_scanning else None
     if input_scan is None and event.get("reason") == "scanner_failure" and settings.fail_closed:
@@ -853,6 +856,20 @@ def _base_event(
 def _audit(event: dict[str, Any], policy: RoutePolicy) -> None:
     if policy.audit:
         audit_log.append(event)
+
+
+def _join_payload_text(segments: list[PayloadTextSegment]) -> str:
+    return "\n".join(segment.text for segment in segments if segment.text)
+
+
+def _payload_segment_summary(segments: list[PayloadTextSegment]) -> dict[str, Any]:
+    by_kind = Counter(segment.kind for segment in segments if segment.kind)
+    by_role = Counter(segment.role or "unknown" for segment in segments)
+    return {
+        "total": len(segments),
+        "by_kind": dict(sorted(by_kind.items())),
+        "by_role": dict(sorted(by_role.items())),
+    }
 
 
 async def _scan_input_safely(text: str, policy: RoutePolicy, event: dict[str, Any]) -> ScanResult | None:

@@ -293,6 +293,8 @@ The request is forwarded with sensitive fields replaced, and a `redacted` event 
 
 Audit events include both raw findings and a compact `finding_summary` grouped by category, severity, and action. The dashboard uses that summary to show which WAF rules are firing without requiring users to inspect JSONL by hand, and supports filters such as `/dashboard?decision=blocked&category=prompt_injection&severity=critical`.
 
+Input audit events also include `input_segments` counts by payload kind and role, for example `message_content`, `tool_result`, and `tool_call_arguments`. The counts help confirm which OpenAI-compatible surfaces the WAF saw without storing the original segment text.
+
 ## Usage tracking
 
 When an upstream provider returns an OpenAI-compatible `usage` object, LLM-WAF records it in the audit event:

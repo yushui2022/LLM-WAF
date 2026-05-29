@@ -17,6 +17,8 @@ class AuditSink(Protocol):
 
     def tail(self, limit: int = 50) -> list[dict[str, Any]]: ...
 
+    def metrics(self) -> dict[str, int]: ...
+
 
 class FileAuditSink:
     def __init__(self, path: Path, rotate_max_bytes: int = 10_000_000, rotate_backups: int = 5):
@@ -85,6 +87,9 @@ class FileAuditSink:
     def _backup_path(self, index: int) -> Path:
         return Path(f"{self.path}.{index}")
 
+    def metrics(self) -> dict[str, int]:
+        return {"queued": 0, "dropped": 0, "failed": 0}
+
 
 class StdoutAuditSink:
     def __init__(self, stream: TextIO | None = None, max_recent: int = 1000):
@@ -105,6 +110,9 @@ class StdoutAuditSink:
             return []
         with self._lock:
             return list(self._recent)[-limit:]
+
+    def metrics(self) -> dict[str, int]:
+        return {"queued": 0, "dropped": 0, "failed": 0}
 
 
 class HttpAuditSink:
@@ -159,6 +167,14 @@ class HttpAuditSink:
             return []
         with self._lock:
             return list(self._recent)[-limit:]
+
+    def metrics(self) -> dict[str, int]:
+        with self._lock:
+            return {
+                "queued": self._queue.qsize(),
+                "dropped": self._dropped_count,
+                "failed": self._failed_count,
+            }
 
     def _run(self) -> None:
         while True:

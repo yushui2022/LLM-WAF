@@ -1,6 +1,6 @@
 import unittest
 
-from app.metrics import MetricsRegistry, record_event_metrics
+from app.metrics import MetricsRegistry, record_event_metrics, render_audit_sink_metrics
 
 
 class MetricsTests(unittest.TestCase):
@@ -67,6 +67,13 @@ class MetricsTests(unittest.TestCase):
         rendered = registry.render()
 
         self.assertIn('route="bad\\"route"', rendered)
+
+    def test_renders_audit_sink_metrics(self):
+        rendered = render_audit_sink_metrics("http", {"queued": 3, "dropped": 2, "failed": 1})
+
+        self.assertIn('llm_waf_audit_queue_depth{sink="http"} 3', rendered)
+        self.assertIn('llm_waf_audit_events_dropped_total{sink="http"} 2', rendered)
+        self.assertIn('llm_waf_audit_delivery_failures_total{sink="http"} 1', rendered)
 
 
 if __name__ == "__main__":

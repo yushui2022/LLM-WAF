@@ -27,7 +27,7 @@ from app.access import AuthResult, GatewayAuth, RateLimitResult, create_rate_lim
 from app.audit import create_audit_sink
 from app.config import settings
 from app.dashboard import render_dashboard
-from app.metrics import metrics_registry, record_event_metrics
+from app.metrics import metrics_registry, record_event_metrics, render_audit_sink_metrics
 from app.policy import PolicyStore, RoutePolicy
 from app.pricing import PricingStore
 from app.security.models import Finding, ScanResult
@@ -174,7 +174,8 @@ async def health_config(request: Request) -> Response:
 
 @app.get("/metrics")
 async def metrics() -> Response:
-    return Response(metrics_registry.render(), media_type="text/plain; version=0.0.4; charset=utf-8")
+    body = metrics_registry.render() + render_audit_sink_metrics(settings.audit_sink, audit_log.metrics())
+    return Response(body, media_type="text/plain; version=0.0.4; charset=utf-8")
 
 
 @app.get("/dashboard", response_class=HTMLResponse)

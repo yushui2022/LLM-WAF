@@ -730,7 +730,9 @@ Compliance-minded users need durable, exportable audit.
   log collectors while keeping a bounded dashboard buffer.
 - Done: `AUDIT_SINK=http` ships audit events asynchronously to a webhook/SIEM
   endpoint with a bounded queue and drop-on-full behavior.
-- Pending: shutdown-time flush and delivery/drop counters in `/metrics`.
+- Done: `/metrics` reports audit queue depth, dropped events, and delivery
+  failures with only the low-cardinality `sink` label.
+- Pending: shutdown-time flush.
 
 ---
 

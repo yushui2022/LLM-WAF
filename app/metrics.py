@@ -171,6 +171,25 @@ def record_event_metrics(event: dict[str, Any], registry: MetricsRegistry | None
         registry.inc("llm_waf_fail_closed_total", {"decision": decision})
 
 
+def render_audit_sink_metrics(sink: str, snapshot: dict[str, int]) -> str:
+    labels = (("sink", _label_value(sink)),)
+    queued = max(0, int(snapshot.get("queued", 0)))
+    dropped = max(0, int(snapshot.get("dropped", 0)))
+    failed = max(0, int(snapshot.get("failed", 0)))
+    lines = [
+        "# HELP llm_waf_audit_queue_depth Current queued audit events.",
+        "# TYPE llm_waf_audit_queue_depth gauge",
+        f"llm_waf_audit_queue_depth{_format_labels(labels)} {queued}",
+        "# HELP llm_waf_audit_events_dropped_total Total audit events dropped by audit sinks.",
+        "# TYPE llm_waf_audit_events_dropped_total counter",
+        f"llm_waf_audit_events_dropped_total{_format_labels(labels)} {dropped}",
+        "# HELP llm_waf_audit_delivery_failures_total Total audit delivery failures.",
+        "# TYPE llm_waf_audit_delivery_failures_total counter",
+        f"llm_waf_audit_delivery_failures_total{_format_labels(labels)} {failed}",
+    ]
+    return "\n".join(lines) + "\n"
+
+
 def _render_counter(counters: dict[tuple[str, tuple[tuple[str, str], ...]], float], name: str) -> list[str]:
     lines: list[str] = []
     for (metric_name, labels), value in sorted(counters.items()):

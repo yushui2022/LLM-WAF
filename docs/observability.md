@@ -16,6 +16,9 @@ API keys, prompts, rule evidence, or full request paths as labels.
 | `llm_waf_findings_total` | counter | `category`, `severity`, `action`, `source` | WAF findings emitted by deterministic and semantic scanners. |
 | `llm_waf_scanner_errors_total` | counter | `kind`, `fail_closed` | Scanner failures, split by deterministic vs. semantic scanner. |
 | `llm_waf_fail_closed_total` | counter | `decision` | Requests or streams where `FAIL_CLOSED=true` converted a scanner failure into a blocked/error decision. |
+| `llm_waf_audit_queue_depth` | gauge | `sink` | Current queued audit events. Non-zero sustained values mean the audit sink is slower than event production. |
+| `llm_waf_audit_events_dropped_total` | counter | `sink` | Audit events dropped because the async sink queue was full. |
+| `llm_waf_audit_delivery_failures_total` | counter | `sink` | Failed audit delivery attempts, for example HTTP/SIEM endpoint errors or timeouts. |
 
 ## Example Scrape Config
 
@@ -62,6 +65,18 @@ Fail-closed trips:
 
 ```promql
 sum(rate(llm_waf_fail_closed_total[5m]))
+```
+
+Audit delivery failures:
+
+```promql
+sum(rate(llm_waf_audit_delivery_failures_total[5m]))
+```
+
+Dropped audit events:
+
+```promql
+sum(rate(llm_waf_audit_events_dropped_total[5m]))
 ```
 
 ## Structured Request Logs

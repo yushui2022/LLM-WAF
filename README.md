@@ -320,6 +320,9 @@ LLM-WAF exposes Prometheus-compatible metrics at `/metrics` without adding a sep
 - `llm_waf_findings_total{category,severity,action,source}`
 - `llm_waf_scanner_errors_total{kind,fail_closed}`
 - `llm_waf_fail_closed_total{decision}`
+- `llm_waf_audit_queue_depth{sink}`
+- `llm_waf_audit_events_dropped_total{sink}`
+- `llm_waf_audit_delivery_failures_total{sink}`
 
 Example:
 

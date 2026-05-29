@@ -28,6 +28,7 @@ class GatewayTests(unittest.TestCase):
         self.assertIn("llm_waf_request_latency_ms", response.text)
         self.assertIn("llm_waf_scanner_latency_ms", response.text)
         self.assertIn("llm_waf_upstream_latency_ms", response.text)
+        self.assertIn("llm_waf_audit_queue_depth", response.text)
 
     def test_health_config_redacts_secrets(self):
         original_upstream_key = main_module.settings.upstream_api_key

@@ -661,9 +661,9 @@ adoption.
 
 **Progress (2026-05-29):**
 - Done: dependency-free Prometheus-compatible `/metrics` endpoint.
-- Done: request counter, request latency histogram, finding counter by category/severity/action/source, scanner error counter, and fail-closed counter.
+- Done: request counter, request latency histogram, scanner latency histogram, upstream latency histogram, finding counter by category/severity/action/source, scanner error counter, and fail-closed counter.
 - Done: `docs/observability.md` documents metrics, scrape config, and starter PromQL queries.
-- Pending: structured JSON request logs, richer health/config detail, and explicit scanner/upstream latency histograms.
+- Pending: structured JSON request logs and richer health/config detail.
 
 #### P2-B2. Performance benchmark + published latency budget
 

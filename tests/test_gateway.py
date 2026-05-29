@@ -26,6 +26,8 @@ class GatewayTests(unittest.TestCase):
         self.assertIn("text/plain", response.headers["content-type"])
         self.assertIn("llm_waf_requests_total", response.text)
         self.assertIn("llm_waf_request_latency_ms", response.text)
+        self.assertIn("llm_waf_scanner_latency_ms", response.text)
+        self.assertIn("llm_waf_upstream_latency_ms", response.text)
 
     def test_blocks_before_upstream(self):
         response = self.client.post(
@@ -68,6 +70,7 @@ class GatewayTests(unittest.TestCase):
         metrics = self.client.get("/metrics").text
         self.assertIn('llm_waf_requests_total{decision="blocked"', metrics)
         self.assertIn('source="tool_result"', metrics)
+        self.assertIn("llm_waf_scanner_latency_ms_bucket", metrics)
 
     def test_dashboard_renders(self):
         response = self.client.get("/dashboard")

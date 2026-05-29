@@ -14,6 +14,9 @@ class MetricsTests(unittest.TestCase):
                 "status_code": 403,
                 "stream": False,
                 "latency_ms": 12.5,
+                "input_scanner_latency_ms": 2.0,
+                "output_scanner_latency_ms": 3.0,
+                "upstream_latency_ms": 7.0,
                 "findings": [
                     {
                         "category": "prompt_injection",
@@ -32,6 +35,8 @@ class MetricsTests(unittest.TestCase):
         self.assertIn('llm_waf_findings_total{action="block",category="prompt_injection"', rendered)
         self.assertIn('source="tool_result"', rendered)
         self.assertIn("llm_waf_request_latency_ms_bucket", rendered)
+        self.assertIn("llm_waf_scanner_latency_ms_bucket", rendered)
+        self.assertIn("llm_waf_upstream_latency_ms_bucket", rendered)
 
     def test_records_scanner_errors_and_fail_closed(self):
         registry = MetricsRegistry()

@@ -221,7 +221,11 @@ async def chat_completions(request: Request) -> Response:
     if input_scan_text != request_text:
         event["scanned_prompt_sha256"] = _sha256(input_scan_text)
 
-    input_scan = await _scan_input_segments_safely(request_segments, policy, event) if policy.input_scanning else None
+    input_scan = None
+    if policy.input_scanning:
+        scanner_started = time.perf_counter()
+        input_scan = await _scan_input_segments_safely(request_segments, policy, event)
+        event["input_scanner_latency_ms"] = _elapsed_ms(scanner_started)
     if input_scan is None and event.get("reason") == "scanner_failure" and settings.fail_closed:
         event.update({"decision": "blocked", "status_code": 503, **_finding_fields([])})
         _audit(event, policy)
@@ -316,6 +320,7 @@ async def passthrough(request: Request, path: str) -> Response:
     upstream_url = _upstream_url(request.url.path)
     headers = _forward_headers(request, trace_id, auth)
 
+    upstream_started = time.perf_counter()
     try:
         async with httpx.AsyncClient(timeout=settings.upstream_timeout_seconds) as client:
             upstream = await client.request(
@@ -327,9 +332,10 @@ async def passthrough(request: Request, path: str) -> Response:
             )
     except httpx.HTTPError as exc:
         event = _base_event(trace_id, request, started, model="", stream=False, auth=auth, policy=policy, rate_limit=rate_limit)
-        event.update({"decision": "error", "status_code": 502, "reason": str(exc)})
+        event.update({"decision": "error", "status_code": 502, "reason": str(exc), "upstream_latency_ms": _elapsed_ms(upstream_started)})
         _audit(event, policy)
         return _error_response(trace_id, 502, "upstream_error", str(exc))
+    upstream_latency_ms = _elapsed_ms(upstream_started)
 
     event = _base_event(trace_id, request, started, model="", stream=False, auth=auth, policy=policy, rate_limit=rate_limit)
     event.update(
@@ -337,6 +343,7 @@ async def passthrough(request: Request, path: str) -> Response:
             "decision": "allowed",
             "status_code": upstream.status_code,
             "upstream_status": upstream.status_code,
+            "upstream_latency_ms": upstream_latency_ms,
             "latency_ms": _elapsed_ms(started),
             **_finding_fields([]),
         }
@@ -364,6 +371,7 @@ async def _proxy_buffered(
     upstream_url = _upstream_url(request.url.path)
     headers = _forward_headers(request, trace_id, auth)
 
+    upstream_started = time.perf_counter()
     try:
         async with httpx.AsyncClient(timeout=settings.upstream_timeout_seconds) as client:
             upstream = await client.post(upstream_url, params=request.query_params, headers=headers, json=body)
@@ -373,17 +381,20 @@ async def _proxy_buffered(
                 "decision": "error",
                 "status_code": 502,
                 "reason": str(exc),
+                "upstream_latency_ms": _elapsed_ms(upstream_started),
                 **_finding_fields(input_findings),
                 "latency_ms": _elapsed_ms(started),
             }
         )
         _audit(event, policy)
         return _error_response(trace_id, 502, "upstream_error", str(exc))
+    upstream_latency_ms = _elapsed_ms(upstream_started)
 
     content = upstream.content
     response_headers = _response_headers(upstream)
     output_findings: list[dict[str, Any]] = []
     output_redacted = False
+    output_scanner_latency_ms = 0.0
     usage: dict[str, int] = {}
 
     if _looks_like_json(upstream):
@@ -392,13 +403,17 @@ async def _proxy_buffered(
             usage = extract_usage(response_body)
             if policy.output_scanning:
                 output_text = extract_response_text(response_body)
+                scanner_started = time.perf_counter()
                 output_scan = await _scan_output_safely(output_text, policy, event)
+                output_scanner_latency_ms += _elapsed_ms(scanner_started)
                 if output_scan is None and settings.fail_closed:
                     event.update(
                         {
                             "decision": "blocked",
                             "status_code": 503,
                             "upstream_status": upstream.status_code,
+                            "upstream_latency_ms": upstream_latency_ms,
+                            "output_scanner_latency_ms": round(output_scanner_latency_ms, 2),
                             "latency_ms": _elapsed_ms(started),
                             **_finding_fields(input_findings),
                         }
@@ -426,12 +441,15 @@ async def _proxy_buffered(
             "decision": decision,
             "status_code": upstream.status_code,
             "upstream_status": upstream.status_code,
+            "upstream_latency_ms": upstream_latency_ms,
             "latency_ms": _elapsed_ms(started),
             **_finding_fields(findings),
             "input_redacted": input_redacted,
             "output_redacted": output_redacted,
         }
     )
+    if output_scanner_latency_ms:
+        event["output_scanner_latency_ms"] = round(output_scanner_latency_ms, 2)
     if usage:
         event["usage"] = usage
         cost = pricing_store.estimate(str(event.get("model", "")), usage)
@@ -462,6 +480,7 @@ async def _proxy_streaming(
     headers = _forward_headers(request, trace_id, auth)
     client = httpx.AsyncClient(timeout=None)
 
+    upstream_started = time.perf_counter()
     try:
         upstream_request = client.build_request(
             "POST",
@@ -478,12 +497,14 @@ async def _proxy_streaming(
                 "decision": "error",
                 "status_code": 502,
                 "reason": str(exc),
+                "upstream_header_latency_ms": _elapsed_ms(upstream_started),
                 **_finding_fields(input_findings),
                 "latency_ms": _elapsed_ms(started),
             }
         )
         _audit(event, policy)
         return _error_response(trace_id, 502, "upstream_error", str(exc))
+    upstream_header_latency_ms = _elapsed_ms(upstream_started)
 
     output_findings: list[dict[str, Any]] = []
     output_redacted = False
@@ -492,9 +513,10 @@ async def _proxy_streaming(
     stream_scan_state = StreamScanState(window_chars=settings.stream_scan_window_chars)
     stream_hold_back = StreamHoldBackBuffer(frame_count=settings.stream_hold_back_frames)
     stream_scanner_error = ""
+    output_scanner_latency_ms = 0.0
 
     async def generate():
-        nonlocal output_redacted, stream_scanner_error
+        nonlocal output_redacted, output_scanner_latency_ms, stream_scanner_error
         decoder = codecs.getincrementaldecoder("utf-8")()
         buffer = ""
         try:
@@ -505,6 +527,7 @@ async def _proxy_streaming(
                 buffer += decoder.decode(chunk)
                 while "\n\n" in buffer:
                     frame, buffer = buffer.split("\n\n", 1)
+                    scanner_started = time.perf_counter()
                     try:
                         transformed, changed, frame_findings, frame_usage = _transform_sse_frame(
                             frame,
@@ -514,12 +537,14 @@ async def _proxy_streaming(
                             stream_scan_state=stream_scan_state,
                         )
                     except Exception as exc:
+                        output_scanner_latency_ms += _elapsed_ms(scanner_started)
                         stream_scanner_error = _record_scanner_error(event, exc)
                         if settings.fail_closed:
                             yield _sse_error_frame(trace_id, "scanner_failure", "Output scanner failed and FAIL_CLOSED is enabled.")
                             return
                         yield frame + "\n\n"
                         continue
+                    output_scanner_latency_ms += _elapsed_ms(scanner_started)
                     output_redacted = output_redacted or changed
                     output_findings.extend(frame_findings)
                     if frame_usage:
@@ -535,6 +560,7 @@ async def _proxy_streaming(
                         yield frame_record
             tail = buffer + decoder.decode(b"", final=True)
             if tail:
+                scanner_started = time.perf_counter()
                 try:
                     transformed, changed, frame_findings, frame_usage = _transform_sse_frame(
                         tail,
@@ -544,12 +570,14 @@ async def _proxy_streaming(
                         stream_scan_state=stream_scan_state,
                     )
                 except Exception as exc:
+                    output_scanner_latency_ms += _elapsed_ms(scanner_started)
                     stream_scanner_error = _record_scanner_error(event, exc)
                     if settings.fail_closed:
                         yield _sse_error_frame(trace_id, "scanner_failure", "Output scanner failed and FAIL_CLOSED is enabled.")
                         return
                     yield tail
                     return
+                output_scanner_latency_ms += _elapsed_ms(scanner_started)
                 output_redacted = output_redacted or changed
                 output_findings.extend(frame_findings)
                 if frame_usage:
@@ -574,11 +602,14 @@ async def _proxy_streaming(
                 "decision": "error" if stream_failed_closed else _decision(blocked=False, redacted=input_redacted or output_redacted),
                 "status_code": 503 if stream_failed_closed else upstream.status_code,
                 "upstream_status": upstream.status_code,
+                "upstream_header_latency_ms": upstream_header_latency_ms,
                 "latency_ms": _elapsed_ms(started),
                 **_finding_fields(findings),
                 "input_redacted": input_redacted,
                 "output_redacted": output_redacted,
             }
+            if output_scanner_latency_ms:
+                stream_event["output_scanner_latency_ms"] = round(output_scanner_latency_ms, 2)
             if stream_failed_closed:
                 stream_event["reason"] = "scanner_failure"
             event.update(stream_event)

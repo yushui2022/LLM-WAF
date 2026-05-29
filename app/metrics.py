@@ -91,6 +91,20 @@ class MetricsRegistry:
             ]
         )
         lines.extend(_render_histogram(histograms, "llm_waf_request_latency_ms"))
+        lines.extend(
+            [
+                "# HELP llm_waf_scanner_latency_ms Scanner latency in milliseconds.",
+                "# TYPE llm_waf_scanner_latency_ms histogram",
+            ]
+        )
+        lines.extend(_render_histogram(histograms, "llm_waf_scanner_latency_ms"))
+        lines.extend(
+            [
+                "# HELP llm_waf_upstream_latency_ms Upstream provider latency in milliseconds.",
+                "# TYPE llm_waf_upstream_latency_ms histogram",
+            ]
+        )
+        lines.extend(_render_histogram(histograms, "llm_waf_upstream_latency_ms"))
         return "\n".join(lines) + "\n"
 
     def reset(self) -> None:
@@ -115,6 +129,19 @@ def record_event_metrics(event: dict[str, Any], registry: MetricsRegistry | None
     latency = event.get("latency_ms")
     if isinstance(latency, (int, float)):
         registry.observe("llm_waf_request_latency_ms", float(latency), labels)
+
+    for field, stage in (("input_scanner_latency_ms", "input"), ("output_scanner_latency_ms", "output")):
+        scanner_latency = event.get(field)
+        if isinstance(scanner_latency, (int, float)):
+            registry.observe("llm_waf_scanner_latency_ms", float(scanner_latency), {**labels, "stage": stage})
+
+    upstream_latency = event.get("upstream_latency_ms")
+    if isinstance(upstream_latency, (int, float)):
+        registry.observe("llm_waf_upstream_latency_ms", float(upstream_latency), {**labels, "phase": "full_response"})
+
+    upstream_header_latency = event.get("upstream_header_latency_ms")
+    if isinstance(upstream_header_latency, (int, float)):
+        registry.observe("llm_waf_upstream_latency_ms", float(upstream_header_latency), {**labels, "phase": "headers"})
 
     for finding in event.get("findings", []) or []:
         if not isinstance(finding, dict):

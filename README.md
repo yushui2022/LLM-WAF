@@ -309,6 +309,8 @@ LLM-WAF exposes Prometheus-compatible metrics at `/metrics` without adding a sep
 
 - `llm_waf_requests_total{route,path,decision,status_code,stream}`
 - `llm_waf_request_latency_ms_bucket{route,path,decision,status_code,stream,le}`
+- `llm_waf_scanner_latency_ms_bucket{route,path,decision,status_code,stream,stage,le}`
+- `llm_waf_upstream_latency_ms_bucket{route,path,decision,status_code,stream,phase,le}`
 - `llm_waf_findings_total{category,severity,action,source}`
 - `llm_waf_scanner_errors_total{kind,fail_closed}`
 - `llm_waf_fail_closed_total{decision}`

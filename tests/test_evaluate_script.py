@@ -32,6 +32,18 @@ class EvaluateScriptTests(unittest.TestCase):
         self.assertEqual(metrics["fn"], 0)
         self.assertIn("system_prompt_leak", metrics["by_category"])
 
+    def test_regex_miss_eval_set_has_expected_shape(self):
+        samples = load_samples(Path("tests/eval_set_regex_miss.jsonl"))
+        self.assertGreaterEqual(len(samples), 10)
+        self.assertTrue(any(sample.label == 1 for sample in samples))
+        self.assertTrue(any(sample.label == 0 for sample in samples))
+        self.assertIn("indirect_injection", {sample.category for sample in samples})
+
+    def test_regex_miss_eval_set_keeps_hard_negatives_clean(self):
+        samples = load_samples(Path("tests/eval_set_regex_miss.jsonl"))
+        _, metrics = evaluate(samples, direction="input")
+        self.assertEqual(metrics["fp"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

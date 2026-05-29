@@ -64,6 +64,14 @@ python -B scripts/evaluate.py --direction output --min-precision 0.95 --min-reca
 python -B scripts/redos_probe.py
 ```
 
+When working on semantic or indirect-injection coverage, also run:
+
+```bash
+python -B scripts/evaluate.py --direction input --dataset tests/eval_set_regex_miss.jsonl --show-misses
+```
+
+This slice is a measurement set, not a default gate. It exists to keep known regex recall limits visible while avoiding broad rules that would damage precision.
+
 ## ReDoS Hardening
 
 Scanner rules run regex against user-controlled input. Catastrophic backtracking on a pathological pattern can pin a worker thread. We defend against this in two layers:

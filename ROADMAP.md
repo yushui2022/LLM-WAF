@@ -510,6 +510,12 @@ the gateway stays dependency-light and deterministic unless the operator opts in
   and the explicit recommendation to start with `action=log_only` and review
   audit logs before switching to `block`.
 
+**Progress (2026-05-29):**
+- Done: shared semantic scanner protocol, multiple semantic scanners, local ONNX adapter, optional `[semantic]` dependencies, mocked local scanner tests, and `docs/semantic-local.md`.
+- Done: `tests/eval_set_regex_miss.jsonl` now records paraphrased, multilingual, and indirect-injection samples plus benign hard negatives.
+- Done: `scripts/evaluate.py` accepts `--dataset` as the documented dataset selector while keeping `--file` as a compatibility alias.
+- Pending: choose a real model, document its license and CPU latency, and add a model-backed semantic eval invocation that stays out of default CI when model files are absent.
+
 **Exit criteria:**
 - Base `pip install` works with **zero** new heavy dependencies; semantic deps
   only arrive via the `[semantic]` extra.

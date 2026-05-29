@@ -515,7 +515,13 @@ python -B scripts/evaluate.py --direction input --show-misses --min-precision 0.
 python -B scripts/evaluate.py --direction output --show-misses --min-precision 0.95 --min-recall 0.95 --min-category-recall 0.95
 ```
 
-The eval output includes aggregate metrics and per-category metrics. For stricter rule work, add `--min-category-recall 0.95` so a strong overall score cannot hide a weak category. The default input eval set lives at `tests/eval_set.jsonl`; the default output eval set lives at `tests/output_eval_set.jsonl`. Add both malicious samples and benign hard negatives when changing rules; the goal is to improve recall without quietly increasing false positives.
+Run the regex-miss slice when working on semantic detection, indirect-injection coverage, or broader rule recall:
+
+```bash
+python -B scripts/evaluate.py --direction input --dataset tests/eval_set_regex_miss.jsonl --show-misses
+```
+
+The eval output includes aggregate metrics and per-category metrics. For stricter rule work, add `--min-category-recall 0.95` so a strong overall score cannot hide a weak category. The default input eval set lives at `tests/eval_set.jsonl`; the default output eval set lives at `tests/output_eval_set.jsonl`. `tests/eval_set_regex_miss.jsonl` is intentionally not a per-PR pass/fail gate yet: it records paraphrased, multilingual, and indirect-injection samples the deterministic regex layer may miss, plus benign hard negatives. Use it to measure whether semantic scanners or new rules improve recall without quietly increasing false positives.
 
 Create human-review candidates from real audit logs:
 

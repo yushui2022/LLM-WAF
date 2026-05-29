@@ -2,8 +2,9 @@
 
 Usage:
     python scripts/evaluate.py
-    python scripts/evaluate.py --direction input --file tests/eval_set.jsonl --show-misses
-    python scripts/evaluate.py --direction output --file tests/output_eval_set.jsonl --show-misses
+    python scripts/evaluate.py --direction input --dataset tests/eval_set.jsonl --show-misses
+    python scripts/evaluate.py --direction output --dataset tests/output_eval_set.jsonl --show-misses
+    python scripts/evaluate.py --direction input --dataset tests/eval_set_regex_miss.jsonl --show-misses
 """
 
 from __future__ import annotations
@@ -71,7 +72,11 @@ def _scan_sample(scanner: SecurityScanner, text: str, direction: Direction) -> t
     raise ValueError(f"Unsupported evaluation direction: {direction}")
 
 
-def evaluate(samples: list[EvalSample], direction: Direction = "input") -> tuple[list[EvalResult], dict[str, Any]]:
+def evaluate(
+    samples: list[EvalSample],
+    direction: Direction = "input",
+    dataset: Path | None = None,
+) -> tuple[list[EvalResult], dict[str, Any]]:
     scanner = SecurityScanner()
     results: list[EvalResult] = []
 
@@ -101,6 +106,7 @@ def evaluate(samples: list[EvalSample], direction: Direction = "input") -> tuple
 
     metrics = {
         "direction": direction,
+        "dataset": str(dataset) if dataset else "",
         "samples": len(samples),
         "tp": tp,
         "fp": fp,
@@ -131,6 +137,8 @@ def print_summary(metrics: dict[str, Any]) -> None:
     print("LLM-WAF scanner evaluation")
     print("=" * 30)
     print(f"direction: {metrics['direction']}")
+    if metrics.get("dataset"):
+        print(f"dataset : {metrics['dataset']}")
     print(f"samples : {metrics['samples']}")
     print(f"TP / FP : {metrics['tp']} / {metrics['fp']}")
     print(f"TN / FN : {metrics['tn']} / {metrics['fn']}")
@@ -182,7 +190,7 @@ def print_misses(results: list[EvalResult], direction: Direction) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Evaluate LLM-WAF scanner rules.")
     parser.add_argument("--direction", choices=("input", "output"), default="input")
-    parser.add_argument("--file", type=Path)
+    parser.add_argument("--dataset", "--file", dest="dataset", type=Path)
     parser.add_argument("--show-misses", action="store_true")
     parser.add_argument("--min-precision", type=float, default=0.0)
     parser.add_argument("--min-recall", type=float, default=0.0)
@@ -190,10 +198,10 @@ def main() -> int:
     args = parser.parse_args()
 
     default_file = "output_eval_set.jsonl" if args.direction == "output" else "eval_set.jsonl"
-    sample_path = args.file or ROOT / "tests" / default_file
+    sample_path = args.dataset or ROOT / "tests" / default_file
 
     samples = load_samples(sample_path)
-    results, metrics = evaluate(samples, direction=args.direction)
+    results, metrics = evaluate(samples, direction=args.direction, dataset=sample_path)
     print_summary(metrics)
     if args.show_misses:
         print_misses(results, direction=args.direction)

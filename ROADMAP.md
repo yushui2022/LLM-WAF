@@ -235,15 +235,14 @@ Potential future work:
 - Protocol support matrix and native-adapter requirements. (done)
 - Native provider adapters after OpenAI-compatible path is mature.
 
-## Near-Term Execution Order
+## Near-Term Direction
 
-Start here:
+The old near-term list has been superseded by the Phase 2 plan below. Current priority is:
 
-1. Add tool-call argument scanning and policy.
-2. Add generated Python fallback checks for `config/rules.yaml`.
-3. Improve system prompt leak heuristics.
-
-The next implementation task should be **tool-call argument scanning and policy**, unless a blocking bug appears first.
+1. Add CI lint/type/coverage gates (`P2-C1`) so every later PR gets stronger feedback.
+2. Start the optional local semantic layer (`P2-A1`) and the credible eval-set expansion (`P2-A2`).
+3. Run production-readiness work in parallel where possible: observability, benchmark, and audit durability (`Track B`).
+4. Continue indirect/tool-call injection protection after the semantic/eval foundation is in place (`P2-A3`).
 
 ---
 
@@ -268,7 +267,7 @@ This section captures gaps identified in a code review of the current `main` sna
 
 The order below is chosen so that safety-critical, low-risk-of-regression items come first, and items that unlock later work (timeouts, rule ID schema) precede items that depend on them.
 
-#### 1. Harden regex execution against ReDoS  *(addresses G1, G2)*
+#### 1. Harden regex execution against ReDoS  *(addresses G1, G2)* — DONE 2026-05-29
 
 **Why first:** this is the only gap with a clear *availability* impact — a single adversarial prompt can pin a worker. Everything else is recall/precision tuning.
 
@@ -287,7 +286,7 @@ The order below is chosen so that safety-critical, low-risk-of-regression items 
 - Rule load happens once at import time (verifiable via a unit test that asserts `rule.regex is rule.regex`).
 - New env var documented in README.
 
-#### 2. Streaming safety: change default + add integration tests  *(addresses G4, G8)*
+#### 2. Streaming safety: change default + add integration tests  *(addresses G4, G8)* — DONE 2026-05-29
 
 **Prerequisites:**
 - Item 1 merged (so that scanner timeouts don't reintroduce streaming stalls).
@@ -306,7 +305,7 @@ The order below is chosen so that safety-critical, low-risk-of-regression items 
 - New default ships with green tests.
 - README delta clearly explains the latency/safety tradeoff change.
 
-#### 3. Multi-layer encoding bypass coverage  *(addresses G3)*
+#### 3. Multi-layer encoding bypass coverage  *(addresses G3)* — DONE 2026-05-29
 
 **Prerequisites:**
 - Items 1 and 2 merged (do not stack new scanning work on top of unhardened regex).
@@ -400,7 +399,7 @@ The order below is chosen so that safety-critical, low-risk-of-regression items 
 
 ### Suggested Sequencing Note
 
-Items 1, 2, 3 are safety-critical and should land before the project is recommended for any production use. Items 4 and 6 are pure hygiene and can be parallelized with item 5 if reviewer bandwidth allows. Item 7 is the final pre-deployment polish before declaring the gateway ready for shared-dev or staging environments.
+Items 1–4 are done. Remaining legacy work maps into Phase 2: item 5 becomes `P2-A1`, item 6 should happen before large native-adapter work, and item 7 belongs with production-readiness work in Track B.
 
 ---
 
@@ -420,12 +419,11 @@ item states *why it matters*, its *prerequisites*, a *file-level task list*, and
 - **Risk**: how likely the change breaks existing behavior.
 - **Blocking**: must another item land first?
 
-> **Recommended global order for "going big":** P2-A1 (semantic layer) →
-> P2-A2 (eval set credibility) → then Track B (observability/ops) and Track C
-> (release engineering) in parallel. The semantic layer is the only item that
-> *qualitatively* changes what the product can detect; everything else makes it
-> trustworthy and adoptable. Track C items are cheap and high-leverage for
-> attracting contributors, so a maintainer can interleave them anytime.
+> **Recommended global order for "going big":** P2-C1 (CI gates) first, then
+> P2-A1 (semantic layer) → P2-A2 (eval set credibility) → Track B
+> (observability/ops) and the rest of Track C in parallel. The semantic layer is
+> the only item that *qualitatively* changes what the product can detect; the
+> other tracks make it trustworthy and adoptable.
 
 ---
 

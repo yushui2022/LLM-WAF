@@ -41,9 +41,10 @@ Most "LLM firewalls" make you rewrite your agent, break SSE streaming, or ship y
 - Token usage tracking from provider `usage` fields
 - Configurable model pricing table for estimated spend
 - Input and output WAF scanner evaluation harnesses
-- JSONL audit log
+- Rotating JSONL audit log, stdout audit sink, and async HTTP/SIEM audit sink
+- Prometheus-compatible `/metrics`, redacted `/health/config`, and safe structured request logs
 - Built-in `/dashboard`
-- Docker Compose one-command startup
+- `llm-waf` CLI, Docker Compose one-command startup, and release workflow scaffolding
 
 ## Known limitations
 
@@ -53,8 +54,19 @@ Being upfront so you know what you're getting:
 - Rate limiting defaults to local memory. Use `RATE_LIMIT_BACKEND=redis` for multi-replica deployments.
 - Anthropic / Gemini **native** protocols are not supported (use their OpenAI-compatible endpoints). See [docs/protocol-support.md](docs/protocol-support.md) for the current support matrix.
 - Known unscanned generation routes such as `/v1/messages`, `/v1/responses`, and `/v1/completions` are blocked by default instead of being silently proxied without WAF scanning.
-- Chinese prompt-injection rule set is still early; keep adding real attack samples and benign hard negatives before trusting recall claims.
+- Chinese prompt-injection coverage has expanded, but recall still depends on real attack samples and benign hard negatives. Keep validating category-level recall before trusting high-risk deployments.
+- The default detector is rule-driven. Optional semantic scanners are available, but the base install stays lightweight and deterministic by default.
 - In streaming mode, `FAIL_CLOSED=true` can terminate the SSE stream with an error event after headers have already been sent.
+
+## Current Trade-Offs And Next Upgrades
+
+Some reviewer concerns are real product trade-offs rather than simple bugs. The current status is:
+
+| Area | Current state | Why this trade-off exists | Next upgrade focus |
+|---|---|---|---|
+| Chinese prompt-injection coverage | The default rule file has 23 total rules: 13 input rules, 8 Chinese input attack rules, and 11 Chinese-related rules including Chinese PII and output leak detection. | Conservative rules reduce false positives, but high recall needs more real Chinese attack samples, multilingual bypasses, and benign hard negatives. | Expand the Chinese eval set, add more indirect-injection and mixed-language samples, and keep category-level recall gates in CI. |
+| Streaming safety vs. latency | `STREAM_HOLD_BACK_FRAMES=1` is the default. It delays one SSE frame so cross-frame findings can still redact held content. | Already-forwarded stream bytes cannot be recalled. Zero hold-back gives lower latency but weaker cross-frame leak protection. | Publish TTFB / p95 overhead benchmarks and document recommended settings for low-latency vs. high-safety routes. |
+| Protocol and semantic depth | OpenAI-compatible chat-completions traffic is the primary scanned surface. Unsupported generation routes are blocked by default. Semantic scanners are optional and default-off. | A narrow, well-tested protocol surface is safer than silently passing unscanned native traffic. Optional semantic scanning keeps the base gateway predictable and dependency-light. | Add native Anthropic / Gemini extractors with contract tests, and benchmark semantic scanner recall against the regex-miss eval slice. |
 
 ## Quick start
 

@@ -401,3 +401,400 @@ The order below is chosen so that safety-critical, low-risk-of-regression items 
 ### Suggested Sequencing Note
 
 Items 1, 2, 3 are safety-critical and should land before the project is recommended for any production use. Items 4 and 6 are pure hygiene and can be parallelized with item 5 if reviewer bandwidth allows. Item 7 is the final pre-deployment polish before declaring the gateway ready for shared-dev or staging environments.
+
+---
+
+## Phase 2: Path to a Production-Grade, Adoptable Open-Source WAF (2026-05-29)
+
+Items 1–4 are merged: the deterministic core (ReDoS hardening, streaming safety,
+multi-layer decoding, unified rule IDs) is solid. The gaps below are what
+separates "a working regex gateway" from "a WAF people trust in production and
+star on GitHub." They are grouped into three tracks. **The tracks are largely
+independent and can run in parallel**; within a track, items are ordered.
+
+This section is written to be executed by an implementation agent (Codex). Each
+item states *why it matters*, its *prerequisites*, a *file-level task list*, and
+*exit criteria*. Difficulty/risk tags help with scheduling:
+
+- **Difficulty**: S (a few hours) / M (1–2 days) / L (multi-day, needs design).
+- **Risk**: how likely the change breaks existing behavior.
+- **Blocking**: must another item land first?
+
+> **Recommended global order for "going big":** P2-A1 (semantic layer) →
+> P2-A2 (eval set credibility) → then Track B (observability/ops) and Track C
+> (release engineering) in parallel. The semantic layer is the only item that
+> *qualitatively* changes what the product can detect; everything else makes it
+> trustworthy and adoptable. Track C items are cheap and high-leverage for
+> attracting contributors, so a maintainer can interleave them anytime.
+
+---
+
+### Track A — Detection capability (the product ceiling)
+
+This track decides whether the project is "yet another regex WAF" or a genuinely
+differentiated tool. Highest strategic value.
+
+#### P2-A1. Optional local semantic classifier  *(supersedes the detailed plan of legacy Item 5; addresses G5)*
+
+**Difficulty:** L · **Risk:** Medium (default-off keeps blast radius small) · **Blocking:** none (core is ready)
+
+**Why it matters:** Regex cannot catch paraphrased ("pretend the earlier rules
+don't apply"), translated, or indirect-injection (attack hidden in
+RAG/tool-returned text) attacks. A small CPU classifier closes most of this gap
+and is the single biggest differentiator. Must be *optional and default-off* so
+the gateway stays dependency-light and deterministic unless the operator opts in.
+
+**Prerequisites / decisions to lock before coding:**
+- **Model choice.** Pick a small, permissively-licensed prompt-injection
+  classifier that runs on CPU within budget. Candidates to evaluate:
+  `protectai/deberta-v3-base-prompt-injection-v2` (ONNX-exportable),
+  `deepset/deberta-v3-base-injection`, or a distilled/quantized variant. Record
+  the chosen model, its license, size, and measured CPU latency (p50/p95 for a
+  256-token input) in `docs/semantic-local.md`. **Do not** add a heavyweight
+  framework (no full `torch` if an ONNX runtime suffices); prefer
+  `onnxruntime` + `tokenizers`.
+- **Dependency isolation.** New deps go in an optional extra
+  (`pip install llm-waf[semantic]`), declared in `pyproject.toml` under
+  `[project.optional-dependencies]`. The base install must not pull them in.
+- **Interface contract.** Reuse the existing async contract from
+  `app/security/semantic.py`: a scanner exposes `async def scan_input(text) -> ScanResult`
+  and `async def scan_output(text) -> ScanResult`, and results are combined via
+  `merge_scan_results`. Define a `SemanticScanner` `Protocol` in `semantic.py`
+  that both `HttpSemanticScanner` and the new local scanner satisfy.
+
+**File-level tasks:**
+- `app/security/semantic.py`: extract a `SemanticScanner` `typing.Protocol`
+  (methods `scan_input`, `scan_output`). Make `HttpSemanticScanner` explicitly
+  conform. Keep `merge_scan_results` as the single combination point.
+- `app/security/semantic_local.py` (NEW): implement `LocalSemanticScanner`
+  conforming to the protocol.
+  - Lazy-load the ONNX model + tokenizer on first scan (not at import), so a
+    default-off deployment never pays the load cost. Guard the import of
+    `onnxruntime`/`tokenizers` and raise a clear, actionable error if the
+    `[semantic]` extra is missing.
+  - Map the classifier score to a `Finding`: `rule_id="semantic.prompt_injection.local"`,
+    `category="prompt_injection"`, `severity` derived from score band,
+    `action` driven by config (see below), `source="semantic_local"`,
+    `evidence` = truncated/redacted snippet (never log the full input).
+  - Threshold + action are configurable: scores below `SEMANTIC_LOCAL_THRESHOLD`
+    produce no finding; above it, `action` is `SEMANTIC_LOCAL_ACTION`
+    (`log_only` | `block` for input, `redact` | `log_only` for output).
+    Default action `log_only` so enabling the model can't suddenly start
+    blocking traffic.
+  - Hard-cap input length fed to the model (`SEMANTIC_LOCAL_MAX_CHARS`, e.g.
+    4000) to bound latency; document that very long inputs are truncated.
+  - Wrap inference in a timeout/error guard: on model error, honor the global
+    `FAIL_CLOSED` setting exactly like other scanner failures (do not invent a
+    new failure mode).
+- `app/config.py`: add `semantic_local_enabled` (`SEMANTIC_LOCAL`, default
+  `False`), `semantic_local_model_path` (`SEMANTIC_LOCAL_MODEL_PATH`),
+  `semantic_local_threshold` (`SEMANTIC_LOCAL_THRESHOLD`, default e.g. `0.85`),
+  `semantic_local_action` (`SEMANTIC_LOCAL_ACTION`, default `log_only`),
+  `semantic_local_max_chars` (`SEMANTIC_LOCAL_MAX_CHARS`, default `4000`).
+- `app/main.py` (or the post-Item-6 factory): instantiate `LocalSemanticScanner`
+  when `SEMANTIC_LOCAL=true`; wire its result through `merge_scan_results` in
+  both input and output paths, exactly mirroring how `HttpSemanticScanner` is
+  used today. If both HTTP and local are configured, run both and merge all.
+- `pyproject.toml`: add `[project.optional-dependencies] semantic = [...]`.
+- `tests/test_semantic_local.py` (NEW): unit tests with the model **mocked**
+  (no network/model download in CI) verifying score→finding mapping, threshold
+  gating, action selection, length cap, fail-closed behavior, and that
+  default-off yields no scanner instance.
+- `tests/eval_set.jsonl` + a NEW `tests/eval_set_regex_miss.jsonl`: add a
+  labeled slice of attacks the regex layer is known to miss (paraphrased ignore,
+  translated jailbreaks, prose-embedded indirect injection) plus nearby benign
+  hard negatives.
+- `scripts/evaluate.py`: support an optional `--with-semantic-local` flag (or a
+  separate eval invocation) so CI can measure recall lift on the regex-miss
+  slice without making the model a hard CI dependency. Gate this eval behind a
+  marker so the default CI job (no model) still passes.
+- `docs/semantic-local.md` (NEW) + README "Semantic scanner hook" section:
+  document model choice, license, opt-in install, env vars, latency numbers,
+  and the explicit recommendation to start with `action=log_only` and review
+  audit logs before switching to `block`.
+
+**Exit criteria:**
+- Base `pip install` works with **zero** new heavy dependencies; semantic deps
+  only arrive via the `[semantic]` extra.
+- With `SEMANTIC_LOCAL=true`, recall on `eval_set_regex_miss.jsonl` rises
+  measurably vs. regex-only, while precision on the benign hard negatives in
+  that slice stays above the configured threshold.
+- Default-off behavior is byte-identical on the existing eval and test suite.
+- Mocked unit tests cover every config branch; **no model download happens in CI**.
+
+#### P2-A2. Eval-set credibility: scale up + import public datasets  *(addresses the "52 self-authored samples prove little" gap)*
+
+**Difficulty:** M · **Risk:** Low (test-data only) · **Blocking:** none; strongly complements P2-A1
+
+**Why it matters:** `P=R=100%` on 52 hand-written samples only proves the rules
+match their own authors' imagination. Credible recall/precision claims need
+volume and *independently sourced* attacks. This is what lets the README make
+honest, defensible quality statements — table stakes for adoption.
+
+**Prerequisites / decisions:**
+- Survey permissively-licensed public datasets and record license + attribution
+  for each before importing. Candidates: `deepset/prompt-injections`,
+  `jackhhao/jailbreak-classification`, Lakera "Gandalf"-style public dumps,
+  `JasperLS/prompt-injections`. **Only import datasets whose license permits
+  redistribution**; otherwise add a downloader script instead of vendoring.
+- Decide the target eval size and the benign:malicious ratio (recommend a
+  realistic skew, e.g. heavily benign, so FPR is measured meaningfully).
+- Decide how to keep CI fast: a small curated in-repo `eval_set.jsonl` for the
+  per-PR gate, plus an opt-in larger `eval_set_extended.jsonl` (or downloaded
+  corpus) for a nightly/weekly job.
+
+**File-level tasks:**
+- `scripts/import_eval_datasets.py` (NEW): fetch/convert permitted public
+  datasets into the project's JSONL schema (`id`, `text`, `label`, `category`),
+  deduplicate against existing samples, and emit `tests/eval_set_extended.jsonl`.
+  For non-redistributable sets, fetch at runtime and document the manual step.
+- `tests/eval_set.jsonl`: grow the curated per-PR set with the most
+  discriminating imported samples and new benign hard negatives (multilingual,
+  security-education prose, legitimate roleplay, code containing keyword-like
+  tokens).
+- `tests/eval_set_extended.jsonl` (NEW, possibly git-LFS or generated): the
+  larger corpus for the extended job.
+- `scripts/evaluate.py`: add a `--dataset` path arg so the same harness runs on
+  either set; print a per-category breakdown and a confusion matrix.
+- `.github/workflows/`: add a separate scheduled (nightly) workflow that runs
+  the extended eval with looser-but-tracked thresholds and uploads the report as
+  an artifact. Keep the per-PR job on the fast curated set.
+- `docs/rule-quality.md` + README: replace any "100%" claim with honest,
+  dataset-attributed numbers and a link to the methodology. Add a results table
+  with sample counts and sources.
+
+**Exit criteria:**
+- Per-PR CI still runs in well under a minute on the curated set.
+- Extended eval runs on >= an order of magnitude more samples than today, with
+  documented sources and licenses.
+- README quality claims are reproducible via a single documented command.
+
+#### P2-A3. Indirect / tool-call injection scanning  *(extends the legacy Phase-5 "tool-call argument scanning" item)*
+
+**Difficulty:** M · **Risk:** Medium · **Blocking:** P2-A1 recommended first (so semantic + regex both cover the new surface)
+
+**Why it matters:** The highest-severity real-world LLM attacks are *indirect*:
+malicious instructions arrive inside tool results, RAG documents, or function
+arguments — content the current gateway treats as trusted. Scanning these
+surfaces is a meaningful coverage expansion and a strong differentiator.
+
+**Prerequisites / decisions:**
+- Enumerate where untrusted content enters an OpenAI-compatible request:
+  `messages[].content` with `role: tool`, `tool_calls[].function.arguments`,
+  and (for vision/multimodal) text parts. Document the threat model: tool/role
+  content is *data*, not *instructions*.
+- Decide policy semantics: should a finding inside a `tool` message `block`,
+  `redact`, or `log_only` by default? (Recommend `redact`/`log_only` default,
+  `block` opt-in, since false positives here break legitimate RAG.)
+
+**File-level tasks:**
+- `app/security/payload.py`: add extraction of tool-role message content and
+  `tool_calls` argument JSON as separately-labeled scannable segments.
+- Scanner/gateway path: scan these segments through the same rule + semantic
+  pipeline, tagging findings with `source="tool_call"` / `source="tool_result"`
+  so audit and policy can treat them distinctly.
+- `app/policy.py`: add per-route toggles
+  (`scan_tool_arguments`, `scan_tool_results`, with safe defaults).
+- `tests/`: add malicious-indirect-injection samples (instruction smuggled in a
+  fake "search result") and benign tool-result hard negatives.
+- README + `docs/protocol-support.md`: document the new scan surfaces and
+  policy knobs.
+
+**Exit criteria:**
+- Indirect-injection eval samples are caught; benign tool results are not
+  false-flagged at the default policy.
+- Existing non-tool requests are unaffected.
+
+---
+
+### Track B — Production readiness (so operators trust it)
+
+Independent of Track A. These make the difference between "runs on my laptop"
+and "I'll put it in front of real traffic."
+
+#### P2-B1. Observability: metrics, structured logs, health detail
+
+**Difficulty:** M · **Risk:** Low · **Blocking:** cleaner after Item 6 (decomposition), but not required
+
+**Why it matters:** The first question any operator asks about a gateway is "how
+do I monitor it and what latency does it add?" Today there are no metrics, no
+structured logs, no latency visibility. This is a hard blocker for production
+adoption.
+
+**Prerequisites / decisions:**
+- Choose the metrics approach: `prometheus_client` exposing `/metrics` is the
+  conventional, low-friction choice. Confirm it's an acceptable (optional?)
+  dependency.
+- Define the metric set and label cardinality budget (avoid high-cardinality
+  labels like raw rule text or user IDs).
+
+**File-level tasks:**
+- `app/observability.py` (NEW): define counters/histograms — requests by
+  route/decision (`allowed`/`blocked`/`redacted`), findings by
+  `category`/`severity`, scanner latency histogram, upstream latency histogram,
+  scanner-timeout counter, fail-closed-trip counter.
+- Gateway path: increment metrics at the decision points (reuse the existing
+  audit-event construction site so the two stay consistent).
+- `GET /metrics` endpoint (optionally auth-gated / bindable to a separate port
+  via config) returning Prometheus exposition format.
+- Replace ad-hoc logging with structured JSON logs (one event per request) using
+  stdlib `logging` + a JSON formatter; **route all secret-bearing fields through
+  the same redaction used by P2-B3**.
+- `tests/test_observability.py` (NEW): assert counters move on block/redact/allow
+  and that `/metrics` renders.
+- README "Architecture"/ops section + a new `docs/observability.md`: list every
+  metric, its labels, and a sample Grafana panel query.
+
+**Exit criteria:**
+- `/metrics` exposes the documented series; scraping it is documented.
+- Structured logs contain no secret material (shared test with P2-B3).
+- Negligible latency overhead (verify with the P2-B2 benchmark).
+
+#### P2-B2. Performance benchmark + published latency budget
+
+**Difficulty:** S–M · **Risk:** Low · **Blocking:** none
+
+**Why it matters:** A WAF's adoption hinges on its added latency. There is
+currently no number to cite. A repeatable benchmark also guards against future
+latency regressions.
+
+**File-level tasks:**
+- `scripts/benchmark.py` (NEW): drive the gateway with a fixed corpus
+  (benign + malicious, streaming + non-streaming) against a *fake/stub upstream*
+  (reuse the `_FakeAsyncClient` pattern from `tests/test_streaming_holdback.py`),
+  and report added-latency p50/p95/p99, TTFB for streaming, and throughput.
+- `docs/performance.md` (NEW): publish methodology, hardware, and the measured
+  overhead with vs. without scanning, and with vs. without the semantic layer.
+- Optional CI guardrail: a job that runs a short benchmark and fails if added
+  p95 latency regresses beyond a documented envelope (mark non-blocking first to
+  avoid flaky-perf CI failures).
+
+**Exit criteria:**
+- A single command produces a reproducible latency/throughput report.
+- README cites a concrete "adds ~X ms p95" number with a link to methodology.
+
+#### P2-B3. Audit log durability: rotation + external sinks
+
+**Difficulty:** M · **Risk:** Medium (touches the audit write path) · **Blocking:** none
+
+**Why it matters:** Audit currently appends to a single local JSONL file with no
+rotation — it will fill the disk in production, and there's no path to a SIEM.
+Compliance-minded users need durable, exportable audit.
+
+**Prerequisites / decisions:**
+- Decide sink abstraction: a pluggable `AuditSink` interface with
+  implementations for rotating-file, stdout-JSON (for container log shippers),
+  and an HTTP/webhook sink (for SIEM ingest). Keep file the default.
+
+**File-level tasks:**
+- `app/audit.py`: introduce an `AuditSink` protocol; refactor the existing
+  writer into a `FileAuditSink` with size/time-based rotation
+  (`AUDIT_ROTATE_MAX_BYTES`, `AUDIT_ROTATE_BACKUPS`). Add `StdoutAuditSink` and
+  an optional `HttpAuditSink` (best-effort, non-blocking, bounded queue so a slow
+  SIEM can't stall request handling).
+- `app/config.py`: `AUDIT_SINK` (`file`|`stdout`|`http`), rotation + HTTP sink
+  settings.
+- Ensure findings written to audit are already redaction-safe (evidence is
+  truncated; no raw secrets). Add a test that a secret in input never appears
+  verbatim in any audit sink output.
+- `tests/test_audit.py`: extend for rotation and the new sinks (HTTP sink with a
+  fake server).
+- README + `docs/`: document sinks and rotation.
+
+**Exit criteria:**
+- File sink rotates and never grows unbounded.
+- A misbehaving HTTP sink degrades gracefully (drops/queues, never blocks the
+  request path) and this is tested.
+- No secret material in any sink output (shared test with P2-B1).
+
+---
+
+### Track C — Release engineering & project hygiene (so contributors and users arrive)
+
+Cheap, high-leverage, mostly parallelizable. These make the repo look and behave
+like a serious open-source project.
+
+#### P2-C1. CI quality gates: lint + type-check + coverage
+
+**Difficulty:** S · **Risk:** Low · **Blocking:** none (do early — it improves every later PR)
+
+**File-level tasks:**
+- Add `ruff` (lint + format) and `mypy` configs to `pyproject.toml`. Fix or
+  explicitly ignore existing findings in a dedicated PR so the gate starts green.
+- `.github/workflows/ci.yml`: add `ruff check`, `ruff format --check`, `mypy app`,
+  and a coverage run (`coverage`/`pytest-cov`) that uploads a report. Start
+  coverage as report-only, then ratchet a minimum once a baseline is known.
+- `docs/`/CONTRIBUTING: document the local pre-commit commands.
+
+**Exit criteria:**
+- CI fails on lint/type errors; the gate is green at merge time.
+- Coverage is reported on every PR.
+
+#### P2-C2. Packaging & distribution: PyPI + versioning + CHANGELOG + image publish
+
+**Difficulty:** M · **Risk:** Low · **Blocking:** P2-C1 recommended first
+
+**Why it matters:** Users currently can only `git clone`. `pip install llm-waf`
+and `docker pull` dramatically lower the adoption barrier.
+
+**File-level tasks:**
+- `pyproject.toml`: finalize package metadata, entry-point/console script for
+  launching the gateway, classifiers, and the `[semantic]` extra (from P2-A1).
+- Adopt semantic versioning; add `CHANGELOG.md` (Keep-a-Changelog format) and
+  start tagging releases.
+- `.github/workflows/release.yml` (NEW): on tag, build the sdist/wheel and
+  publish to PyPI (trusted publishing/OIDC), and build+push a multi-arch Docker
+  image to GHCR. Pin and document the published image name.
+- README: add `pip install` and `docker pull` quick-starts; add a version badge.
+
+**Exit criteria:**
+- A tagged release publishes a wheel to PyPI and an image to GHCR
+  automatically.
+- README install instructions work from a clean environment.
+
+#### P2-C3. Community & security hygiene
+
+**Difficulty:** S · **Risk:** None · **Blocking:** none
+
+**Why it matters:** A *security* tool with no responsible-disclosure policy is a
+bad look and deters serious users. These files also signal maturity.
+
+**File-level tasks:**
+- `SECURITY.md` (NEW): responsible disclosure contact + process + supported
+  versions.
+- Strengthen `CONTRIBUTING` (if thin): dev setup, the eval-gate workflow, how to
+  file false-positive/bypass reports (link the existing formats in
+  `docs/rule-quality.md`).
+- Issue/PR templates under `.github/`: bug, false-positive, bypass-report,
+  feature.
+- A short "Threat model & non-goals" section in README or `docs/threat-model.md`
+  so users understand what the WAF does and does **not** defend against (sets
+  honest expectations — important for a security tool).
+
+**Exit criteria:**
+- Repo has SECURITY.md, templates, and a clear threat-model statement.
+
+---
+
+### Phase 2 Cross-Cutting Rules (apply to every item)
+
+- **Default-off for anything heavy.** New dependencies (semantic model, metrics
+  client) must be optional extras; the base install stays light and the default
+  behavior stays deterministic.
+- **No secrets in any output.** Logs, metrics labels, audit sinks, `/metrics`,
+  and `/health/config` must all pass the shared redaction test.
+- **Eval/tests move with behavior.** Any rule/scanning change ships eval samples
+  in the same PR and keeps the per-PR gate green.
+- **Latency is a feature.** Anything in the request path must be benchmarked
+  (P2-B2) and stay within the documented envelope.
+- **One focused PR per item.** Each item above is sized for a single reviewable
+  PR; do not bundle a Track A detection change with a Track C packaging change.
+
+### Phase 2 Suggested Schedule for an Implementation Agent
+
+1. **P2-C1** (CI gates) first — it raises quality on every subsequent PR and is cheap.
+2. **P2-A1** (semantic layer) — the headline capability; longest lead time, start early.
+3. **P2-A2** (eval credibility) in parallel with A1 — A1 needs the regex-miss slice A2 produces.
+4. **Track B** (observability, benchmark, audit sinks) — parallelizable across agents.
+5. **P2-A3** (indirect injection) after A1 lands.
+6. **P2-C2 / P2-C3** (packaging, community) — interleave anytime; do C3 before the first public "release" announcement.

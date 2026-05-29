@@ -88,6 +88,10 @@ audit_log = create_audit_sink(
     settings.audit_log_path,
     settings.audit_rotate_max_bytes,
     settings.audit_rotate_backups,
+    settings.audit_http_url,
+    settings.audit_http_timeout_seconds,
+    settings.audit_http_queue_size,
+    settings.audit_http_bearer_token,
 )
 gateway_auth = GatewayAuth(settings.gateway_api_keys, settings.gateway_api_key_header)
 rate_limiter = create_rate_limiter(settings.rate_limit_per_minute, settings.rate_limit_backend, settings.redis_url)
@@ -996,6 +1000,12 @@ def _redacted_config_summary() -> dict[str, Any]:
             "log_path": str(settings.audit_log_path),
             "rotate_max_bytes": settings.audit_rotate_max_bytes,
             "rotate_backups": settings.audit_rotate_backups,
+            "http": {
+                "url": _redact_url(settings.audit_http_url),
+                "timeout_seconds": settings.audit_http_timeout_seconds,
+                "queue_size": settings.audit_http_queue_size,
+                "bearer_token": _secret_state(settings.audit_http_bearer_token),
+            },
         },
     }
 

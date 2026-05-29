@@ -415,10 +415,14 @@ Audit events include:
 | `SEMANTIC_LOCAL_TIMEOUT_SECONDS` | `2.0` | Timeout for local semantic inference. |
 | `BLOCKED_STATUS_CODE` | `403` | HTTP status returned when a request is blocked. |
 | `FAIL_CLOSED` | `false` | If scanner execution fails, block input requests and suppress buffered outputs instead of failing open. Streaming outputs terminate with an SSE error event. |
-| `AUDIT_SINK` | `file` | Audit sink: `file` writes rotating JSONL to `AUDIT_LOG_PATH`; `stdout` emits one JSON object per line for container log collectors. |
+| `AUDIT_SINK` | `file` | Audit sink: `file` writes rotating JSONL to `AUDIT_LOG_PATH`; `stdout` emits one JSON object per line for container log collectors; `http` sends events to `AUDIT_HTTP_URL`. |
 | `AUDIT_LOG_PATH` | `var/audit/events.jsonl` | JSONL audit log path. |
 | `AUDIT_ROTATE_MAX_BYTES` | `10000000` | Rotate the JSONL audit file once it exceeds this size. Set `0` to disable rotation. |
 | `AUDIT_ROTATE_BACKUPS` | `5` | Number of rotated audit files to keep (`events.jsonl.1`, `events.jsonl.2`, ...). |
+| `AUDIT_HTTP_URL` | empty | HTTP/SIEM ingest URL required when `AUDIT_SINK=http`. |
+| `AUDIT_HTTP_TIMEOUT_SECONDS` | `2.0` | Per-event HTTP audit delivery timeout. |
+| `AUDIT_HTTP_QUEUE_SIZE` | `1000` | Bounded async delivery queue size for `AUDIT_SINK=http`. Full queues drop new audit events instead of blocking requests. |
+| `AUDIT_HTTP_BEARER_TOKEN` | empty | Optional bearer token for HTTP audit delivery. Redacted from `/health/config`. |
 | `DASHBOARD_LIMIT` | `50` | Number of recent events shown in `/dashboard`. |
 
 ## Architecture

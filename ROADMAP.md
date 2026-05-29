@@ -728,7 +728,9 @@ Compliance-minded users need durable, exportable audit.
 - Done: default JSONL audit sink rotates by size with configurable backup count.
 - Done: `AUDIT_SINK=stdout` emits one JSON audit event per line for container
   log collectors while keeping a bounded dashboard buffer.
-- Pending: optional HTTP/SIEM sink.
+- Done: `AUDIT_SINK=http` ships audit events asynchronously to a webhook/SIEM
+  endpoint with a bounded queue and drop-on-full behavior.
+- Pending: shutdown-time flush and delivery/drop counters in `/metrics`.
 
 ---
 

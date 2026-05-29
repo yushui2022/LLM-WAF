@@ -113,6 +113,20 @@ as one JSON line on stdout. The dashboard keeps a bounded in-memory recent-event
 buffer in this mode, but stdout remains the durable handoff point for log
 collectors.
 
+For SIEM or webhook ingest, set `AUDIT_SINK=http`:
+
+```env
+AUDIT_SINK=http
+AUDIT_HTTP_URL=https://siem.example.com/llm-waf/audit
+AUDIT_HTTP_TIMEOUT_SECONDS=2.0
+AUDIT_HTTP_QUEUE_SIZE=1000
+AUDIT_HTTP_BEARER_TOKEN=
+```
+
+HTTP delivery is best-effort and asynchronous. The request path only enqueues an
+already-serialized event. If the queue is full, the gateway drops the new audit
+event instead of blocking LLM traffic behind a slow SIEM endpoint.
+
 ## Health And Config
 
 `GET /health` returns a basic liveness response.

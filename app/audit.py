@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+import queue
 import sys
 import threading
+import urllib.request
 from collections import deque
 from pathlib import Path
-from typing import Any, Protocol, TextIO
+from typing import Any, Callable, Protocol, TextIO
 
 
 class AuditSink(Protocol):
@@ -105,18 +107,105 @@ class StdoutAuditSink:
             return list(self._recent)[-limit:]
 
 
+class HttpAuditSink:
+    def __init__(
+        self,
+        url: str,
+        timeout_seconds: float = 2.0,
+        queue_size: int = 1000,
+        bearer_token: str = "",
+        max_recent: int = 1000,
+        sender: Callable[[str], None] | None = None,
+        start_worker: bool = True,
+    ):
+        if not url.strip():
+            raise ValueError("AUDIT_HTTP_URL is required when AUDIT_SINK=http.")
+        self.url = url
+        self.timeout_seconds = max(0.1, timeout_seconds)
+        self.bearer_token = bearer_token
+        self._queue: queue.Queue[str] = queue.Queue(maxsize=max(1, queue_size))
+        self._recent: deque[dict[str, Any]] = deque(maxlen=max(0, max_recent))
+        self._lock = threading.Lock()
+        self._dropped_count = 0
+        self._failed_count = 0
+        self._sender = sender if sender is not None else self._post
+        if start_worker:
+            self._worker = threading.Thread(target=self._run, name="llm-waf-audit-http", daemon=True)
+            self._worker.start()
+
+    @property
+    def dropped_count(self) -> int:
+        with self._lock:
+            return self._dropped_count
+
+    @property
+    def failed_count(self) -> int:
+        with self._lock:
+            return self._failed_count
+
+    def append(self, event: dict[str, Any]) -> None:
+        line = json.dumps(event, ensure_ascii=False, separators=(",", ":"))
+        recent_event: dict[str, Any] = json.loads(line)
+        with self._lock:
+            self._recent.append(recent_event)
+        try:
+            self._queue.put_nowait(line)
+        except queue.Full:
+            with self._lock:
+                self._dropped_count += 1
+
+    def tail(self, limit: int = 50) -> list[dict[str, Any]]:
+        if limit <= 0:
+            return []
+        with self._lock:
+            return list(self._recent)[-limit:]
+
+    def _run(self) -> None:
+        while True:
+            line = self._queue.get()
+            try:
+                self._sender(line)
+            except Exception:
+                with self._lock:
+                    self._failed_count += 1
+            finally:
+                self._queue.task_done()
+
+    def _post(self, line: str) -> None:
+        headers = {
+            "Content-Type": "application/json",
+            "User-Agent": "LLM-WAF",
+        }
+        if self.bearer_token.strip():
+            headers["Authorization"] = f"Bearer {self.bearer_token}"
+        request = urllib.request.Request(
+            self.url,
+            data=line.encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=self.timeout_seconds):
+            return
+
+
 def create_audit_sink(
     sink: str,
     path: Path,
     rotate_max_bytes: int = 10_000_000,
     rotate_backups: int = 5,
+    http_url: str = "",
+    http_timeout_seconds: float = 2.0,
+    http_queue_size: int = 1000,
+    http_bearer_token: str = "",
 ) -> AuditSink:
     normalized = sink.strip().lower()
     if normalized == "file":
         return FileAuditSink(path, rotate_max_bytes, rotate_backups)
     if normalized == "stdout":
         return StdoutAuditSink()
-    raise ValueError(f"Unsupported AUDIT_SINK {sink!r}; expected 'file' or 'stdout'.")
+    if normalized == "http":
+        return HttpAuditSink(http_url, http_timeout_seconds, http_queue_size, http_bearer_token)
+    raise ValueError(f"Unsupported AUDIT_SINK {sink!r}; expected 'file', 'stdout', or 'http'.")
 
 
 AuditLog = FileAuditSink

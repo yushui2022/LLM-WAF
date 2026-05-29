@@ -90,6 +90,10 @@ class Settings:
     audit_log_path: Path = Path(os.getenv("AUDIT_LOG_PATH", "var/audit/events.jsonl"))
     audit_rotate_max_bytes: int = _env_int("AUDIT_ROTATE_MAX_BYTES", 10_000_000)
     audit_rotate_backups: int = _env_int("AUDIT_ROTATE_BACKUPS", 5)
+    audit_http_url: str = os.getenv("AUDIT_HTTP_URL", "")
+    audit_http_timeout_seconds: float = _env_float("AUDIT_HTTP_TIMEOUT_SECONDS", 2.0)
+    audit_http_queue_size: int = _env_int("AUDIT_HTTP_QUEUE_SIZE", 1000)
+    audit_http_bearer_token: str = os.getenv("AUDIT_HTTP_BEARER_TOKEN", "")
     dashboard_limit: int = _env_int("DASHBOARD_LIMIT", 50)
 
     enable_cors: bool = _env_bool("ENABLE_CORS", True)

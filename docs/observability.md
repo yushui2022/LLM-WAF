@@ -95,10 +95,11 @@ log shipping and operational alerting.
 
 ## Audit Rotation
 
-The default JSONL audit sink rotates by size so a long-running gateway does not
+The default file audit sink rotates by size so a long-running gateway does not
 grow one file forever:
 
 ```env
+AUDIT_SINK=file
 AUDIT_LOG_PATH=var/audit/events.jsonl
 AUDIT_ROTATE_MAX_BYTES=10000000
 AUDIT_ROTATE_BACKUPS=5
@@ -106,6 +107,11 @@ AUDIT_ROTATE_BACKUPS=5
 
 Rotated files are named `events.jsonl.1`, `events.jsonl.2`, and so on. Set
 `AUDIT_ROTATE_MAX_BYTES=0` to disable rotation.
+
+For containerized deployments, set `AUDIT_SINK=stdout` to emit each audit event
+as one JSON line on stdout. The dashboard keeps a bounded in-memory recent-event
+buffer in this mode, but stdout remains the durable handoff point for log
+collectors.
 
 ## Health And Config
 

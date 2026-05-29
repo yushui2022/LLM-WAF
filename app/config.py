@@ -86,6 +86,7 @@ class Settings:
     semantic_local_timeout_seconds: float = _env_float("SEMANTIC_LOCAL_TIMEOUT_SECONDS", 2.0)
     blocked_status_code: int = _env_int("BLOCKED_STATUS_CODE", 403)
 
+    audit_sink: str = os.getenv("AUDIT_SINK", "file")
     audit_log_path: Path = Path(os.getenv("AUDIT_LOG_PATH", "var/audit/events.jsonl"))
     audit_rotate_max_bytes: int = _env_int("AUDIT_ROTATE_MAX_BYTES", 10_000_000)
     audit_rotate_backups: int = _env_int("AUDIT_ROTATE_BACKUPS", 5)

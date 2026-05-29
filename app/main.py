@@ -24,7 +24,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 
 from app.access import AuthResult, GatewayAuth, RateLimitResult, create_rate_limiter
-from app.audit import AuditLog
+from app.audit import create_audit_sink
 from app.config import settings
 from app.dashboard import render_dashboard
 from app.metrics import metrics_registry, record_event_metrics
@@ -83,7 +83,12 @@ semantic_scanners: tuple[SemanticScanner, ...] = tuple(
     )
     if scanner is not None
 )
-audit_log = AuditLog(settings.audit_log_path, settings.audit_rotate_max_bytes, settings.audit_rotate_backups)
+audit_log = create_audit_sink(
+    settings.audit_sink,
+    settings.audit_log_path,
+    settings.audit_rotate_max_bytes,
+    settings.audit_rotate_backups,
+)
 gateway_auth = GatewayAuth(settings.gateway_api_keys, settings.gateway_api_key_header)
 rate_limiter = create_rate_limiter(settings.rate_limit_per_minute, settings.rate_limit_backend, settings.redis_url)
 policy_store = PolicyStore.load(
@@ -987,6 +992,7 @@ def _redacted_config_summary() -> dict[str, Any]:
         },
         "allow_unscanned_generation_passthrough": settings.allow_unscanned_generation_passthrough,
         "audit": {
+            "sink": settings.audit_sink,
             "log_path": str(settings.audit_log_path),
             "rotate_max_bytes": settings.audit_rotate_max_bytes,
             "rotate_backups": settings.audit_rotate_backups,

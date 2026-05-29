@@ -1,8 +1,10 @@
+import io
+import json
 import tempfile
 import unittest
 from pathlib import Path
 
-from app.audit import AuditLog
+from app.audit import AuditLog, FileAuditSink, StdoutAuditSink, create_audit_sink
 from app.dashboard import render_dashboard
 
 
@@ -29,6 +31,29 @@ class AuditLogTests(unittest.TestCase):
             self.assertTrue(Path(f"{path}.1").exists())
             events = audit.tail(3)
             self.assertEqual([event["trace_id"] for event in events], ["event-3", "event-4", "event-5"])
+
+    def test_stdout_sink_writes_json_and_keeps_recent_events(self):
+        stream = io.StringIO()
+        audit = StdoutAuditSink(stream=stream, max_recent=2)
+
+        audit.append({"trace_id": "one", "decision": "allowed"})
+        audit.append({"trace_id": "two", "decision": "blocked"})
+        audit.append({"trace_id": "three", "decision": "allowed"})
+
+        lines = stream.getvalue().splitlines()
+        self.assertEqual(json.loads(lines[-1])["trace_id"], "three")
+        self.assertEqual([event["trace_id"] for event in audit.tail(10)], ["two", "three"])
+        self.assertEqual(audit.tail(0), [])
+
+    def test_create_audit_sink_selects_supported_sinks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "events.jsonl"
+
+            self.assertIsInstance(create_audit_sink("file", path), FileAuditSink)
+            self.assertIsInstance(create_audit_sink("stdout", path), StdoutAuditSink)
+
+            with self.assertRaises(ValueError):
+                create_audit_sink("unknown", path)
 
     def test_dashboard_renders_token_usage(self):
         html = render_dashboard(

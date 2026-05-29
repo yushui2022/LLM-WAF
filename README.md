@@ -415,6 +415,7 @@ Audit events include:
 | `SEMANTIC_LOCAL_TIMEOUT_SECONDS` | `2.0` | Timeout for local semantic inference. |
 | `BLOCKED_STATUS_CODE` | `403` | HTTP status returned when a request is blocked. |
 | `FAIL_CLOSED` | `false` | If scanner execution fails, block input requests and suppress buffered outputs instead of failing open. Streaming outputs terminate with an SSE error event. |
+| `AUDIT_SINK` | `file` | Audit sink: `file` writes rotating JSONL to `AUDIT_LOG_PATH`; `stdout` emits one JSON object per line for container log collectors. |
 | `AUDIT_LOG_PATH` | `var/audit/events.jsonl` | JSONL audit log path. |
 | `AUDIT_ROTATE_MAX_BYTES` | `10000000` | Rotate the JSONL audit file once it exceeds this size. Set `0` to disable rotation. |
 | `AUDIT_ROTATE_BACKUPS` | `5` | Number of rotated audit files to keep (`events.jsonl.1`, `events.jsonl.2`, ...). |

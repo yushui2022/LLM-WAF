@@ -1,14 +1,22 @@
-"""JSONL audit log."""
+"""Audit sinks."""
 
 from __future__ import annotations
 
 import json
+import sys
 import threading
+from collections import deque
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol, TextIO
 
 
-class AuditLog:
+class AuditSink(Protocol):
+    def append(self, event: dict[str, Any]) -> None: ...
+
+    def tail(self, limit: int = 50) -> list[dict[str, Any]]: ...
+
+
+class FileAuditSink:
     def __init__(self, path: Path, rotate_max_bytes: int = 10_000_000, rotate_backups: int = 5):
         self.path = path
         self.rotate_max_bytes = max(0, rotate_max_bytes)
@@ -24,6 +32,8 @@ class AuditLog:
                 f.write(line + "\n")
 
     def tail(self, limit: int = 50) -> list[dict[str, Any]]:
+        if limit <= 0:
+            return []
         lines: list[str] = []
         for path in self._tail_paths():
             if not path.exists():
@@ -72,3 +82,41 @@ class AuditLog:
 
     def _backup_path(self, index: int) -> Path:
         return Path(f"{self.path}.{index}")
+
+
+class StdoutAuditSink:
+    def __init__(self, stream: TextIO | None = None, max_recent: int = 1000):
+        self.stream = stream if stream is not None else sys.stdout
+        self._recent: deque[dict[str, Any]] = deque(maxlen=max(0, max_recent))
+        self._lock = threading.Lock()
+
+    def append(self, event: dict[str, Any]) -> None:
+        line = json.dumps(event, ensure_ascii=False, separators=(",", ":"))
+        recent_event: dict[str, Any] = json.loads(line)
+        with self._lock:
+            self.stream.write(line + "\n")
+            self.stream.flush()
+            self._recent.append(recent_event)
+
+    def tail(self, limit: int = 50) -> list[dict[str, Any]]:
+        if limit <= 0:
+            return []
+        with self._lock:
+            return list(self._recent)[-limit:]
+
+
+def create_audit_sink(
+    sink: str,
+    path: Path,
+    rotate_max_bytes: int = 10_000_000,
+    rotate_backups: int = 5,
+) -> AuditSink:
+    normalized = sink.strip().lower()
+    if normalized == "file":
+        return FileAuditSink(path, rotate_max_bytes, rotate_backups)
+    if normalized == "stdout":
+        return StdoutAuditSink()
+    raise ValueError(f"Unsupported AUDIT_SINK {sink!r}; expected 'file' or 'stdout'.")
+
+
+AuditLog = FileAuditSink

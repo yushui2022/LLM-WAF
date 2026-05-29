@@ -270,6 +270,24 @@ class GatewayTests(unittest.TestCase):
         self.assertEqual(summary["by_kind"]["tool_call_arguments"], 1)
         self.assertNotIn("secret text", str(summary))
 
+    def test_structured_log_event_does_not_include_finding_evidence_or_error_reason(self):
+        structured = main_module._structured_log_event(
+            {
+                "trace_id": "waf_test",
+                "decision": "blocked",
+                "status_code": 403,
+                "reason": "Authorization Bearer sk-secret",
+                "finding_count": 1,
+                "finding_summary": {"by_source": {"tool_result": 1}},
+                "findings": [{"evidence": "sk-secret", "source": "tool_result"}],
+            }
+        )
+
+        rendered = main_module.json_dumps(structured)
+        self.assertIn("finding_summary", rendered)
+        self.assertNotIn("sk-secret", rendered)
+        self.assertNotIn("Authorization", rendered)
+
     def test_request_scan_text_honors_tool_segment_policy(self):
         segments = extract_request_segments(
             {

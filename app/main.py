@@ -60,6 +60,7 @@ if settings.enable_cors:
     )
 
 scanner = SecurityScanner()
+request_logger = logging.getLogger("llm_waf.requests")
 semantic_scanners: tuple[SemanticScanner, ...] = tuple(
     scanner
     for scanner in (
@@ -896,8 +897,38 @@ def _base_event(
 
 def _audit(event: dict[str, Any], policy: RoutePolicy) -> None:
     record_event_metrics(event)
+    request_logger.info(json_dumps(_structured_log_event(event)))
     if policy.audit:
         audit_log.append(event)
+
+
+def _structured_log_event(event: dict[str, Any]) -> dict[str, Any]:
+    allowed_fields = (
+        "trace_id",
+        "ts",
+        "method",
+        "path",
+        "model",
+        "stream",
+        "principal",
+        "auth_method",
+        "policy",
+        "decision",
+        "status_code",
+        "upstream_status",
+        "latency_ms",
+        "input_scanner_latency_ms",
+        "output_scanner_latency_ms",
+        "upstream_latency_ms",
+        "upstream_header_latency_ms",
+        "finding_count",
+        "finding_summary",
+        "input_segments",
+        "input_redacted",
+        "output_redacted",
+        "fail_closed",
+    )
+    return {field: event[field] for field in allowed_fields if field in event}
 
 
 def _join_payload_text(segments: list[PayloadTextSegment]) -> str:

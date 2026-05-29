@@ -63,3 +63,32 @@ Fail-closed trips:
 ```promql
 sum(rate(llm_waf_fail_closed_total[5m]))
 ```
+
+## Structured Request Logs
+
+LLM-WAF emits one JSON log line per finalized request through the
+`llm_waf.requests` logger.
+
+The structured log includes safe operational fields such as:
+
+- `trace_id`
+- `method`
+- `path`
+- `policy`
+- `decision`
+- `status_code`
+- latency fields
+- `finding_count`
+- `finding_summary`
+- `input_segments`
+
+It intentionally excludes:
+
+- raw prompts and request bodies
+- `findings[].evidence`
+- raw exception text
+- provider or gateway API keys
+- authorization headers
+
+Use JSONL audit for detailed finding records. Use structured logs for container
+log shipping and operational alerting.

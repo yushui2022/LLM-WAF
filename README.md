@@ -323,6 +323,8 @@ curl http://localhost:8080/metrics
 
 See [docs/observability.md](docs/observability.md) for the metric list, scrape config, and example PromQL queries.
 
+LLM-WAF also emits a structured JSON request log through the `llm_waf.requests` logger. The log line intentionally omits raw findings, finding evidence, prompts, request bodies, and exception text; use the JSONL audit log when you need detailed finding records.
+
 ## Usage tracking
 
 When an upstream provider returns an OpenAI-compatible `usage` object, LLM-WAF records it in the audit event:

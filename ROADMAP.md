@@ -536,9 +536,16 @@ the gateway stays dependency-light and deterministic unless the operator opts in
 - Default-off behavior is byte-identical on the existing eval and test suite.
 - Mocked unit tests cover every config branch; **no model download happens in CI**.
 
-#### P2-A2. Eval-set credibility: scale up + import public datasets  *(addresses the "52 self-authored samples prove little" gap)*
+#### P2-A2. Eval-set credibility: scale up + import public datasets  *(addresses the "52 self-authored samples prove little" gap)* — DONE 2026-05-29
 
 **Difficulty:** M · **Risk:** Low (test-data only) · **Blocking:** none; strongly complements P2-A1
+
+> Shipped in `eb3677c`: `scripts/import_eval_datasets.py` (offline converter for
+> deepset/JasperLS/jackhhao datasets), `tests/eval_set_extended.jsonl` (52
+> multilingual samples + hard negatives), `.github/workflows/nightly-eval.yml`
+> (precision-strict / recall-loose scheduled gate), and a reproducible README
+> results table. Extended set measures 100% precision / ~81% recall, honestly
+> exposing the regex recall gap the curated set hides.
 
 **Why it matters:** `P=R=100%` on 52 hand-written samples only proves the rules
 match their own authors' imagination. Credible recall/precision claims need

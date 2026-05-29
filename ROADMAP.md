@@ -326,7 +326,7 @@ The order below is chosen so that safety-critical, low-risk-of-regression items 
 - New eval samples pass at configured precision/recall thresholds.
 - Worst-case variant generation time per request is bounded and benchmarked.
 
-#### 4. Rule ID schema unification + per-rule metadata cleanup  *(addresses G9)*
+#### 4. Rule ID schema unification + per-rule metadata cleanup  *(addresses G9)* — DONE 2026-05-29
 
 **Prerequisites:**
 - Lock the schema: `<category>.<subtype>.<lang|universal>`. Document in `docs/rule-quality.md`.

@@ -21,9 +21,9 @@ import yaml
 # containing newlines.
 _DOTALL_RULE_IDS: frozenset[str] = frozenset(
     {
-        "secret.private_key",
-        "out.system_prompt_leak.en",
-        "out.system_prompt_leak.zh",
+        "secret.private_key.universal",
+        "system_prompt_leak.disclosure.en",
+        "system_prompt_leak.disclosure.zh",
     }
 )
 
@@ -40,6 +40,10 @@ class Rule:
     tags: tuple[str, ...] = ()
     references: tuple[str, ...] = ()
     recommended_remediation: str = ""
+    # Deprecated previous rule IDs kept for one release so existing
+    # policy.yaml `disabled_rules` configs keep working after the
+    # `<category>.<subtype>.<lang|universal>` rename. See docs/rule-quality.md.
+    aliases: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         flags = re.IGNORECASE
@@ -58,209 +62,236 @@ class Rule:
             return self.tags
         return (self.category, self.severity, self.action)
 
+    @property
+    def all_ids(self) -> tuple[str, ...]:
+        return (self.rule_id, *self.aliases)
+
 
 FALLBACK_INPUT_RULES: tuple[Rule, ...] = (
     Rule(
-        "inj.ignore_previous.en",
+        "prompt_injection.instruction_override.en",
         "prompt_injection",
         "critical",
         "block",
         r"\b(ignore|disregard|forget)\s+(all\s+)?(previous|prior|above|earlier)\s+(instructions?|rules?|directives?)\b",
         "Attempts to override higher-priority instructions.",
+        aliases=("inj.ignore_previous.en",),
     ),
     Rule(
-        "inj.system_prompt_extract.en",
+        "system_prompt_extraction.disclosure.en",
         "system_prompt_extraction",
         "critical",
         "block",
         r"\b(reveal|show|print|output|repeat|tell\s+me|dump)\s+(your\s+)?(system\s+prompt|developer\s+message|hidden\s+instructions?|initial\s+instructions?)\b",
         "Attempts to extract hidden system or developer instructions.",
+        aliases=("inj.system_prompt_extract.en",),
     ),
     Rule(
-        "inj.role_hijack.en",
+        "role_hijack.identity_switch.en",
         "role_hijack",
         "high",
         "block",
         r"\b(you\s+are\s+now[^\n]{0,60}(unrestricted|admin|developer|root|jailbroken|hacker|no\s+restrictions?)|pretend\s+(you\s+are|to\s+be)[^\n]{0,80}(without\s+(any\s+)?(safety|content)\s+filters?|no\s+restrictions?|unrestricted|hacker|criminal)|act\s+as\s+if\s+you\s+(are|were)[^\n]{0,80}(without\s+(any\s+)?safety|no\s+restrictions?|unrestricted|hacker|criminal)|switch\s+to\s+(developer|admin|god)\s+mode)\b",
         "Attempts to replace the assistant identity or operating mode.",
+        aliases=("inj.role_hijack.en",),
     ),
     Rule(
-        "inj.jailbreak.en",
+        "jailbreak.known_terms.en",
         "jailbreak",
         "high",
         "block",
         r"\b(DAN|do\s+anything\s+now|jailbreak|bypass\s+(the\s+)?(safety|filter|restriction|guardrail)s?)\b",
         "Known jailbreak or safety-bypass terminology.",
+        aliases=("inj.jailbreak.en",),
     ),
     Rule(
-        "inj.template_tags",
+        "prompt_injection.template_tags.universal",
         "prompt_injection",
         "high",
         "block",
         r"(</?(system|user|assistant|developer|human|ai)\s*>|\[/?(INST|SYS)\]|<\|im_(start|end)\|>)",
         "Chat template or role-tag injection.",
+        aliases=("inj.template_tags",),
     ),
     Rule(
-        "inj.ignore_previous.zh",
+        "prompt_injection.instruction_override.zh",
         "prompt_injection",
         "critical",
         "block",
         r"(忽略|无视|忘记|不要管)[^\n]{0,12}(之前|上面|以上|所有|原来)[^\n]{0,12}(指令|规则|要求|设定)",
         "中文指令覆盖攻击。",
+        aliases=("inj.ignore_previous.zh",),
     ),
     Rule(
-        "inj.system_prompt_extract.zh",
+        "system_prompt_extraction.disclosure.zh",
         "system_prompt_extraction",
         "critical",
         "block",
         r"(显示|输出|打印|泄露|告诉我|重复)[^\n]{0,12}(系统提示词|system prompt|初始设定|内部指令|隐藏指令)",
         "中文系统提示词探测。",
+        aliases=("inj.system_prompt_extract.zh",),
     ),
     Rule(
-        "inj.bypass.zh",
+        "jailbreak.safety_bypass.zh",
         "jailbreak",
         "high",
         "block",
         r"(进入开发者模式|开发者模式|解除限制|绕过安全|关闭安全|关闭过滤|不要遵守安全)",
         "中文越狱或安全过滤绕过。",
+        aliases=("inj.bypass.zh",),
     ),
     Rule(
-        "inj.role_hijack.zh",
+        "role_hijack.identity_switch.zh",
         "role_hijack",
         "high",
         "block",
         r"(现在的你是|你现在是|从现在开始你是|角色扮演)[^\n]{0,20}(不受限制|无视规则|黑客|邪恶|无限制)",
         "中文角色劫持攻击。",
+        aliases=("inj.role_hijack.zh",),
     ),
     Rule(
-        "inj.hidden_rules_extract.zh",
+        "system_prompt_extraction.hidden_rules.zh",
         "system_prompt_extraction",
         "critical",
         "block",
         r"(原样|完整|逐字|一字不漏|全部)[^\n]{0,12}(复述|输出|打印|展示|告诉我)[^\n]{0,20}(最开始|一开始|后台|内部|隐藏|原始)[^\n]{0,12}(规则|设定|提示|指令)",
         "中文隐藏规则或初始指令提取。",
+        aliases=("inj.hidden_rules_extract.zh",),
     ),
     Rule(
-        "inj.obey_user_only.zh",
+        "prompt_injection.obey_user_only.zh",
         "prompt_injection",
         "critical",
         "block",
         r"(从现在开始|接下来|以后)[^\n]{0,12}(只听我|只服从我|只服从用户|不要听系统|别听系统|无视系统)",
         "中文要求模型忽略系统约束并只服从用户。",
+        aliases=("inj.obey_user_only.zh",),
     ),
     Rule(
-        "inj.safety_bypass.zh",
+        "jailbreak.policy_bypass.zh",
         "jailbreak",
         "high",
         "block",
         r"(关闭|禁用|绕开|跳过)[^\n]{0,12}(安全策略|安全规则|内容审查|风控|合规限制|审核机制)",
         "中文安全策略或审核机制绕过。",
+        aliases=("inj.safety_bypass.zh",),
     ),
     Rule(
-        "inj.ignore_previous.zh_hant",
+        "prompt_injection.instruction_override.zh_hant",
         "prompt_injection",
         "critical",
         "block",
         r"(忽略|無視|忘記|不要管)[^\n]{0,12}(之前|上面|以上|所有|原來)[^\n]{0,12}(指令|規則|要求|設定)",
         "繁体中文指令覆盖攻击。",
+        aliases=("inj.ignore_previous.zh_hant",),
     ),
 )
 
 
 FALLBACK_SENSITIVE_RULES: tuple[Rule, ...] = (
     Rule(
-        "secret.openai_key",
+        "secret.openai_key.universal",
         "secret",
         "critical",
         "redact",
         r"\bsk-[A-Za-z0-9_-]{20,}\b",
         "OpenAI-style API key.",
         "[REDACTED:api_key]",
+        aliases=("secret.openai_key",),
     ),
     Rule(
-        "secret.github_token",
+        "secret.github_token.universal",
         "secret",
         "critical",
         "redact",
         r"\bgh[pousr]_[A-Za-z0-9_]{30,}\b",
         "GitHub token.",
         "[REDACTED:github_token]",
+        aliases=("secret.github_token",),
     ),
     Rule(
-        "secret.aws_access_key",
+        "secret.aws_access_key.universal",
         "secret",
         "critical",
         "redact",
         r"\bAKIA[0-9A-Z]{16}\b",
         "AWS access key id.",
         "[REDACTED:aws_access_key]",
+        aliases=("secret.aws_access_key",),
     ),
     Rule(
-        "secret.private_key",
+        "secret.private_key.universal",
         "secret",
         "critical",
         "redact",
         r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]+?-----END [A-Z ]*PRIVATE KEY-----",
         "Private key block.",
         "[REDACTED:private_key]",
+        aliases=("secret.private_key",),
     ),
     Rule(
-        "secret.generic_assignment",
+        "secret.generic_assignment.universal",
         "secret",
         "high",
         "redact",
         r"\b(api[_-]?key|secret|access[_-]?token|auth[_-]?token|password|passwd)\s*[:=]\s*['\"]?[A-Za-z0-9_\-./+=]{8,}['\"]?",
         "Generic credential assignment.",
         r"\1=[REDACTED:secret]",
+        aliases=("secret.generic_assignment",),
     ),
     Rule(
-        "pii.email",
+        "pii.email.universal",
         "pii",
         "medium",
         "redact",
         r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b",
         "Email address.",
         "[REDACTED:email]",
+        aliases=("pii.email",),
     ),
     Rule(
-        "pii.cn_mobile",
+        "pii.mobile.zh",
         "pii",
         "medium",
         "redact",
         r"(?<!\d)1[3-9]\d{9}(?!\d)",
         "Chinese mainland mobile number.",
         "[REDACTED:cn_mobile]",
+        aliases=("pii.cn_mobile",),
     ),
     Rule(
-        "pii.cn_id",
+        "pii.national_id.zh",
         "pii",
         "high",
         "redact",
         r"(?<!\d)[1-9]\d{5}(18|19|20)\d{2}(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])\d{3}[\dXx](?!\d)",
         "Chinese resident identity card number.",
         "[REDACTED:cn_id]",
+        aliases=("pii.cn_id",),
     ),
 )
 
 
 FALLBACK_OUTPUT_RULES: tuple[Rule, ...] = (
     Rule(
-        "out.system_prompt_leak.en",
+        "system_prompt_leak.disclosure.en",
         "system_prompt_leak",
         "high",
         "redact",
         r"\b(my|the)\s+(system\s+prompt|developer\s+message|hidden\s+instructions?)\s+(is|are|was|were|says|contains)\b.{0,500}",
         "Output appears to disclose hidden instructions.",
         "[REDACTED:system_prompt]",
+        aliases=("out.system_prompt_leak.en",),
     ),
     Rule(
-        "out.system_prompt_leak.zh",
+        "system_prompt_leak.disclosure.zh",
         "system_prompt_leak",
         "high",
         "redact",
         r"(我的|当前|系统的)?(系统提示词|开发者消息|隐藏指令|初始设定)(是|为|包含).{0,500}",
         "输出疑似泄露系统提示词。",
         "[REDACTED:system_prompt]",
+        aliases=("out.system_prompt_leak.zh",),
     ),
 )
 
@@ -344,6 +375,7 @@ def _load_rule(raw: Any) -> Rule | None:
             tags=_coerce_str_tuple(raw.get("tags")),
             references=_coerce_str_tuple(raw.get("references")),
             recommended_remediation=str(raw.get("recommended_remediation", "")).strip(),
+            aliases=_coerce_str_tuple(raw.get("aliases")),
         )
     except re.error:
         return None
@@ -358,6 +390,17 @@ def _coerce_str_tuple(value: Any) -> tuple[str, ...]:
     if isinstance(value, list):
         return tuple(str(item).strip() for item in value if str(item).strip())
     return ()
+
+
+def deprecated_alias_map(rule_set: RuleSet) -> dict[str, str]:
+    """Map each deprecated alias to the current rule_id that supersedes it."""
+
+    mapping: dict[str, str] = {}
+    for group in (rule_set.input_rules, rule_set.sensitive_rules, rule_set.output_rules):
+        for rule in group:
+            for alias in rule.aliases:
+                mapping[alias] = rule.rule_id
+    return mapping
 
 
 RULES_PATH = Path(os.getenv("RULES_PATH", "config/rules.yaml"))

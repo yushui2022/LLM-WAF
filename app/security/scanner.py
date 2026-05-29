@@ -258,4 +258,8 @@ class SecurityScanner:
 
 
 def _rule_enabled(rule: Rule, disabled_rule_ids: Collection[str], disabled_categories: Collection[str]) -> bool:
-    return rule.rule_id not in disabled_rule_ids and rule.category not in disabled_categories
+    if rule.category in disabled_categories:
+        return False
+    # A rule is disabled if its current ID *or any deprecated alias* appears in
+    # the disabled set, so policy.yaml configs keep working across the rename.
+    return all(rid not in disabled_rule_ids for rid in rule.all_ids)

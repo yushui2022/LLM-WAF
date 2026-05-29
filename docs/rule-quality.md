@@ -17,6 +17,33 @@ Use these labels when discussing rules, eval samples, and release notes:
 
 Most Chinese prompt-injection rules should be treated as `experimental` or `default` until the eval set contains enough real attack samples and benign hard negatives from production-like traffic.
 
+## Rule ID Naming Schema
+
+Every rule ID follows `<category>.<subtype>.<lang|universal>`:
+
+- **category** — the threat class, matching the rule's `category` field
+  (`prompt_injection`, `system_prompt_extraction`, `role_hijack`, `jailbreak`,
+  `secret`, `pii`, `system_prompt_leak`).
+- **subtype** — the specific behavior (`instruction_override`, `disclosure`,
+  `identity_switch`, `template_tags`, `known_terms`, `hidden_rules`,
+  `obey_user_only`, `safety_bypass`, `policy_bypass`, `openai_key`,
+  `generic_assignment`, `email`, `mobile`, `national_id`, ...).
+- **lang|universal** — `en`, `zh`, `zh_hant`, or `universal` for
+  language-agnostic patterns (template tags, secret/PII regexes).
+
+Examples: `prompt_injection.instruction_override.en`,
+`system_prompt_leak.disclosure.zh`, `secret.openai_key.universal`.
+
+### Deprecated aliases
+
+Rules carry an `aliases` list of their previous IDs. `disabled_rules` in
+`policy.yaml` matches against the current ID *and every alias*, so configs that
+reference a pre-rename ID keep working. Aliases are kept for one release, then
+removed. Findings always emit the current `rule_id`, never an alias.
+
+When renaming a rule, move the old ID into `aliases` (in both
+`app/security/rules.py` and `config/rules.yaml`) rather than dropping it.
+
 ## Rule Change Checklist
 
 Before changing `config/rules.yaml`:
@@ -41,7 +68,7 @@ python -B scripts/redos_probe.py
 
 Scanner rules run regex against user-controlled input. Catastrophic backtracking on a pathological pattern can pin a worker thread. We defend against this in two layers:
 
-1. **Pattern hygiene (primary defense).** Built-in rules use `[^\n]{0,N}` instead of `.{0,N}` between alternations, and `re.DOTALL` is enabled only for an explicit allowlist (`_DOTALL_RULE_IDS` in `app/security/rules.py`: `secret.private_key`, `out.system_prompt_leak.*`). This eliminates the most common nested-quantifier ReDoS shapes on multi-line inputs.
+1. **Pattern hygiene (primary defense).** Built-in rules use `[^\n]{0,N}` instead of `.{0,N}` between alternations, and `re.DOTALL` is enabled only for an explicit allowlist (`_DOTALL_RULE_IDS` in `app/security/rules.py`: `secret.private_key.universal`, `system_prompt_leak.disclosure.*`). This eliminates the most common nested-quantifier ReDoS shapes on multi-line inputs.
 2. **Per-rule wall-clock timeout (secondary defense).** `SCANNER_RULE_TIMEOUT_MS` (default `50`) bounds each regex call. On timeout, the scanner emits a `scanner.timeout` finding (`category=scanner_error`, `severity=low`, `action=log_only`) and proceeds with remaining rules.
 
 **Important caveat:** CPython does not release the GIL inside `re` for short inputs, so a runaway regex on a small adversarial string can still occupy a worker for the full backtracking duration regardless of the configured timeout. The timeout is advisory and serves as a structural seam where a future migration to `regex` (with its native `timeout` argument) or `google/re2` can plug in. **Do not rely on the timeout to make a sloppy pattern safe — keep patterns tight.**

@@ -204,7 +204,11 @@ The rule file has three top-level lists:
 | `sensitive` | PII and secret detectors used for input/output redaction. |
 | `output` | Response-side leakage detectors, such as system prompt leak hints. |
 
-Each rule supports `rule_id`, `category`, `severity`, `action`, `pattern`, `description`, optional `replacement`, optional `tags`, optional `references`, and optional `recommended_remediation`. If the file is missing or invalid, LLM-WAF falls back to the built-in Python rules so the gateway does not start without protection.
+Each rule supports `rule_id`, `category`, `severity`, `action`, `pattern`, `description`, optional `replacement`, optional `aliases`, optional `tags`, optional `references`, and optional `recommended_remediation`. If the file is missing or invalid, LLM-WAF falls back to the built-in Python rules so the gateway does not start without protection.
+
+Rule IDs follow `<category>.<subtype>.<lang|universal>` (e.g. `prompt_injection.instruction_override.en`, `secret.openai_key.universal`). See [docs/rule-quality.md](docs/rule-quality.md#rule-id-naming-schema) for the full schema.
+
+> **Migration note (rule ID rename):** rule IDs were renamed to the `<category>.<subtype>.<lang|universal>` schema. The previous IDs (`inj.*`, `out.*`, `secret.openai_key`, `pii.cn_id`, ...) are kept as `aliases` for one release, and `disabled_rules` in `policy.yaml` still matches them, so existing configs keep working. Update your `disabled_rules` to the new IDs before the next release, when aliases are removed.
 
 The rule set is still early, especially for Chinese prompt injection. See [docs/rule-quality.md](docs/rule-quality.md) for the rule maturity model, false-positive report format, bypass report format, and required eval gates for rule changes.
 

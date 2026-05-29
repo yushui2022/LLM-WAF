@@ -166,7 +166,7 @@ class GatewayTests(unittest.TestCase):
         self.assertEqual(first_findings, [])
         self.assertTrue(second_changed)
         self.assertIn("[REDACTED:stream_window]", transformed)
-        self.assertTrue(any(f["rule_id"] == "out.system_prompt_leak.en" for f in second_findings))
+        self.assertTrue(any(f["rule_id"] == "system_prompt_leak.disclosure.en" for f in second_findings))
         self.assertTrue(all(f["source"] == "stream_window" for f in second_findings))
 
     def test_stream_hold_back_redacts_pending_cross_frame_output(self):

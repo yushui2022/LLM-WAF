@@ -9,6 +9,7 @@ from __future__ import annotations
 import codecs
 import hashlib
 import json
+import logging
 import time
 import uuid
 from collections import Counter
@@ -37,6 +38,7 @@ from app.security.payload import (
     redact_response_body,
     redact_sse_json_payload,
 )
+from app.security.rules import RULE_SET, deprecated_alias_map
 from app.security.scanner import SecurityScanner
 from app.security.semantic import HttpSemanticScanner, merge_scan_results
 
@@ -74,6 +76,35 @@ policy_store = PolicyStore.load(
     ),
 )
 pricing_store = PricingStore.load(settings.pricing_path)
+
+logger = logging.getLogger("llm_waf")
+
+
+def _warn_deprecated_disabled_rules() -> None:
+    """Warn once at startup if any policy disables a rule by a deprecated alias.
+
+    Aliases keep old `disabled_rules` configs working for one release; this
+    nudges operators to migrate before the aliases are removed.
+    """
+
+    alias_map = deprecated_alias_map(RULE_SET)
+    if not alias_map:
+        return
+    seen: set[str] = set()
+    for policy in (policy_store.default, *policy_store.routes):
+        for rule_id in policy.disabled_rules:
+            if rule_id in alias_map and rule_id not in seen:
+                seen.add(rule_id)
+                logger.warning(
+                    "policy %r disables rule by deprecated ID %r; rename to %r "
+                    "(aliases are removed next release)",
+                    policy.name,
+                    rule_id,
+                    alias_map[rule_id],
+                )
+
+
+_warn_deprecated_disabled_rules()
 
 UNSCANNED_GENERATION_ROUTES = {
     "completions": "legacy OpenAI completions",

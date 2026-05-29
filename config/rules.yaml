@@ -4,7 +4,8 @@
 # findings block by default; sensitive data and output leaks redact by default.
 
 input:
-  - rule_id: inj.ignore_previous.en
+  - rule_id: prompt_injection.instruction_override.en
+    aliases: [inj.ignore_previous.en]
     category: prompt_injection
     severity: critical
     action: block
@@ -14,7 +15,8 @@ input:
     tags: [en, prompt_injection, override]
     recommended_remediation: Review the prompt source and remove instructions that try to override trusted policy.
 
-  - rule_id: inj.system_prompt_extract.en
+  - rule_id: system_prompt_extraction.disclosure.en
+    aliases: [inj.system_prompt_extract.en]
     category: system_prompt_extraction
     severity: critical
     action: block
@@ -24,7 +26,8 @@ input:
     tags: [en, system_prompt, extraction]
     recommended_remediation: Do not expose system, developer, or hidden instruction text to the model response.
 
-  - rule_id: inj.role_hijack.en
+  - rule_id: role_hijack.identity_switch.en
+    aliases: [inj.role_hijack.en]
     category: role_hijack
     severity: high
     action: block
@@ -34,7 +37,8 @@ input:
     tags: [en, role_hijack, jailbreak]
     recommended_remediation: Keep role or persona requests inside the allowed application behavior.
 
-  - rule_id: inj.jailbreak.en
+  - rule_id: jailbreak.known_terms.en
+    aliases: [inj.jailbreak.en]
     category: jailbreak
     severity: high
     action: block
@@ -44,7 +48,8 @@ input:
     tags: [en, jailbreak, bypass]
     recommended_remediation: Remove safety-bypass language before forwarding the request.
 
-  - rule_id: inj.template_tags
+  - rule_id: prompt_injection.template_tags.universal
+    aliases: [inj.template_tags]
     category: prompt_injection
     severity: high
     action: block
@@ -54,7 +59,8 @@ input:
     tags: [template, role_tag, prompt_injection]
     recommended_remediation: Treat chat template markers in user content as untrusted data, not control tokens.
 
-  - rule_id: inj.ignore_previous.zh
+  - rule_id: prompt_injection.instruction_override.zh
+    aliases: [inj.ignore_previous.zh]
     category: prompt_injection
     severity: critical
     action: block
@@ -64,7 +70,8 @@ input:
     tags: [zh, prompt_injection, override]
     recommended_remediation: 移除试图覆盖上级指令或规则的中文提示。
 
-  - rule_id: inj.system_prompt_extract.zh
+  - rule_id: system_prompt_extraction.disclosure.zh
+    aliases: [inj.system_prompt_extract.zh]
     category: system_prompt_extraction
     severity: critical
     action: block
@@ -74,7 +81,8 @@ input:
     tags: [zh, system_prompt, extraction]
     recommended_remediation: 不要把系统提示词、初始设定或隐藏指令返回给用户。
 
-  - rule_id: inj.bypass.zh
+  - rule_id: jailbreak.safety_bypass.zh
+    aliases: [inj.bypass.zh]
     category: jailbreak
     severity: high
     action: block
@@ -84,7 +92,8 @@ input:
     tags: [zh, jailbreak, bypass]
     recommended_remediation: 移除绕过安全策略或关闭过滤的请求。
 
-  - rule_id: inj.role_hijack.zh
+  - rule_id: role_hijack.identity_switch.zh
+    aliases: [inj.role_hijack.zh]
     category: role_hijack
     severity: high
     action: block
@@ -94,7 +103,8 @@ input:
     tags: [zh, role_hijack, jailbreak]
     recommended_remediation: 将角色扮演限制在可信系统提示和应用允许的范围内。
 
-  - rule_id: inj.hidden_rules_extract.zh
+  - rule_id: system_prompt_extraction.hidden_rules.zh
+    aliases: [inj.hidden_rules_extract.zh]
     category: system_prompt_extraction
     severity: critical
     action: block
@@ -104,7 +114,8 @@ input:
     tags: [zh, system_prompt, extraction]
     recommended_remediation: 阻止用户要求原样复述后台规则、初始设定或隐藏指令。
 
-  - rule_id: inj.obey_user_only.zh
+  - rule_id: prompt_injection.obey_user_only.zh
+    aliases: [inj.obey_user_only.zh]
     category: prompt_injection
     severity: critical
     action: block
@@ -114,7 +125,8 @@ input:
     tags: [zh, prompt_injection, override]
     recommended_remediation: 阻止要求模型改写信任边界或只服从用户的指令。
 
-  - rule_id: inj.safety_bypass.zh
+  - rule_id: jailbreak.policy_bypass.zh
+    aliases: [inj.safety_bypass.zh]
     category: jailbreak
     severity: high
     action: block
@@ -124,7 +136,8 @@ input:
     tags: [zh, jailbreak, bypass]
     recommended_remediation: 阻止关闭、禁用或绕过安全策略和审核机制的请求。
 
-  - rule_id: inj.ignore_previous.zh_hant
+  - rule_id: prompt_injection.instruction_override.zh_hant
+    aliases: [inj.ignore_previous.zh_hant]
     category: prompt_injection
     severity: critical
     action: block
@@ -135,7 +148,8 @@ input:
     recommended_remediation: 阻止繁体中文中试图覆盖上级指令或规则的提示。
 
 sensitive:
-  - rule_id: secret.openai_key
+  - rule_id: secret.openai_key.universal
+    aliases: [secret.openai_key]
     category: secret
     severity: critical
     action: redact
@@ -146,7 +160,8 @@ sensitive:
     tags: [secret, api_key]
     recommended_remediation: Remove provider API keys before sending traffic upstream.
 
-  - rule_id: secret.github_token
+  - rule_id: secret.github_token.universal
+    aliases: [secret.github_token]
     category: secret
     severity: critical
     action: redact
@@ -157,7 +172,8 @@ sensitive:
     tags: [secret, github]
     recommended_remediation: Revoke exposed tokens and rotate credentials.
 
-  - rule_id: secret.aws_access_key
+  - rule_id: secret.aws_access_key.universal
+    aliases: [secret.aws_access_key]
     category: secret
     severity: critical
     action: redact
@@ -168,7 +184,8 @@ sensitive:
     tags: [secret, aws]
     recommended_remediation: Revoke exposed cloud credentials and rotate the associated key pair.
 
-  - rule_id: secret.private_key
+  - rule_id: secret.private_key.universal
+    aliases: [secret.private_key]
     category: secret
     severity: critical
     action: redact
@@ -179,7 +196,8 @@ sensitive:
     tags: [secret, private_key]
     recommended_remediation: Remove private key material and rotate any affected certificate or key pair.
 
-  - rule_id: secret.generic_assignment
+  - rule_id: secret.generic_assignment.universal
+    aliases: [secret.generic_assignment]
     category: secret
     severity: high
     action: redact
@@ -190,7 +208,8 @@ sensitive:
     tags: [secret, credential]
     recommended_remediation: Remove credential assignments from prompts and responses.
 
-  - rule_id: pii.email
+  - rule_id: pii.email.universal
+    aliases: [pii.email]
     category: pii
     severity: medium
     action: redact
@@ -201,7 +220,8 @@ sensitive:
     tags: [pii, email]
     recommended_remediation: Mask personal email addresses unless the route is explicitly trusted for PII.
 
-  - rule_id: pii.cn_mobile
+  - rule_id: pii.mobile.zh
+    aliases: [pii.cn_mobile]
     category: pii
     severity: medium
     action: redact
@@ -212,7 +232,8 @@ sensitive:
     tags: [pii, cn, phone]
     recommended_remediation: Mask phone numbers unless the route is explicitly trusted for PII.
 
-  - rule_id: pii.cn_id
+  - rule_id: pii.national_id.zh
+    aliases: [pii.cn_id]
     category: pii
     severity: high
     action: redact
@@ -224,7 +245,8 @@ sensitive:
     recommended_remediation: Mask national ID numbers unless the route is explicitly trusted for PII.
 
 output:
-  - rule_id: out.system_prompt_leak.en
+  - rule_id: system_prompt_leak.disclosure.en
+    aliases: [out.system_prompt_leak.en]
     category: system_prompt_leak
     severity: high
     action: redact
@@ -235,7 +257,8 @@ output:
     tags: [en, output, system_prompt]
     recommended_remediation: Redact leaked instruction text and inspect the preceding user prompt for extraction attempts.
 
-  - rule_id: out.system_prompt_leak.zh
+  - rule_id: system_prompt_leak.disclosure.zh
+    aliases: [out.system_prompt_leak.zh]
     category: system_prompt_leak
     severity: high
     action: redact

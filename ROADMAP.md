@@ -788,6 +788,16 @@ and `docker pull` dramatically lower the adoption barrier.
   automatically.
 - README install instructions work from a clean environment.
 
+**Progress (2026-05-29):**
+- Done: `pyproject.toml` has a console script, `Dockerfile` now uses the
+  packaged CLI, `CHANGELOG.md` exists, and `.github/workflows/release.yml`
+  scaffolds tag-based publishing.
+- Done: README includes `pip install` and local `llm-waf` quick-starts plus a
+  version badge.
+- Done: local sdist and wheel builds are verified with `python -m build
+  --no-isolation`.
+- Pending: first tagged release verification.
+
 #### P2-C3. Community & security hygiene
 
 **Difficulty:** S · **Risk:** None · **Blocking:** none

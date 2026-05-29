@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "llm-waf"
 version = "0.1.0"
@@ -15,6 +19,9 @@ dependencies = [
   "redis==5.0.4",
 ]
 
+[project.scripts]
+llm-waf = "app.cli:main"
+
 [project.optional-dependencies]
 semantic = [
   "numpy>=1.26.0,<3.0.0",
@@ -22,10 +29,12 @@ semantic = [
   "tokenizers>=0.20.0,<1.0.0",
 ]
 dev = [
+  "build>=1.2.0,<2.0.0",
   "coverage[toml]>=7.6.0,<8.0.0",
   "mypy>=1.14.0,<2.0.0",
   "ruff>=0.8.0,<1.0.0",
   "types-PyYAML>=6.0.12,<7.0.0",
+  "wheel>=0.45.0,<1.0.0",
 ]
 
 [tool.setuptools.packages.find]

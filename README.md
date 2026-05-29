@@ -5,7 +5,8 @@
 <p align="center">
   <img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="License: Apache 2.0"/>
   <img src="https://img.shields.io/badge/python-3.11%2B-blue" alt="Python 3.11+"/>
-  <img src="https://img.shields.io/badge/status-MVP-orange" alt="Status: MVP"/>
+  <img src="https://img.shields.io/badge/version-0.1.0-blue" alt="Version: 0.1.0"/>
+  <img src="https://img.shields.io/badge/status-beta-yellow" alt="Status: beta"/>
   <img src="https://img.shields.io/badge/streaming-supported-brightgreen" alt="Streaming supported"/>
 </p>
 
@@ -64,6 +65,25 @@ docker compose up --build
 ```
 
 Open the dashboard at <http://localhost:8080/dashboard>.
+
+## Install
+
+Once a tagged release is published:
+
+```bash
+pip install llm-waf
+llm-waf --host 0.0.0.0 --port 8080
+
+docker pull ghcr.io/yushui2022/llm-waf:latest
+docker run --rm -p 8080:8080 ghcr.io/yushui2022/llm-waf:latest
+```
+
+For local development from a checkout:
+
+```bash
+pip install -e ".[dev]"
+llm-waf --reload
+```
 
 Operational endpoints:
 

@@ -45,7 +45,7 @@ Most "LLM firewalls" make you rewrite your agent, break SSE streaming, or ship y
 - Built-in `/dashboard`
 - Docker Compose one-command startup
 
-## Known limitations (MVP)
+## Known limitations
 
 Being upfront so you know what you're getting:
 
@@ -134,7 +134,7 @@ If `UPSTREAM_API_KEY` is set on the gateway, LLM-WAF overwrites the upstream `Au
 
 ## Optional gateway API keys
 
-By default the MVP is open on the port where you run it. For a shared dev box or public endpoint, configure gateway keys:
+By default the gateway is open on the port where you run it. For a shared dev box or public endpoint, configure gateway keys:
 
 ```env
 GATEWAY_API_KEYS=dev-key-1,dev-key-2

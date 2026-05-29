@@ -87,7 +87,7 @@ input:
     severity: high
     action: block
     pattern: >-
-      (进入开发者模式|开发者模式|解除限制|绕过安全|关闭安全|关闭过滤|不要遵守安全)
+      ((进入|开启|启用)[^\n]{0,8}开发者模式|解除限制|(请|帮我|直接|现在|必须|务必|我要|你要)[^\n]{0,12}(绕过安全|关闭安全|关闭过滤|不要遵守安全))
     description: 中文越狱或安全过滤绕过。
     tags: [zh, jailbreak, bypass]
     recommended_remediation: 移除绕过安全策略或关闭过滤的请求。
@@ -146,6 +146,50 @@ input:
     description: 繁体中文指令覆盖攻击。
     tags: [zh, hant, prompt_injection, override]
     recommended_remediation: 阻止繁体中文中试图覆盖上级指令或规则的提示。
+
+  - rule_id: prompt_injection.priority_override.zh
+    aliases: [inj.priority_override.zh]
+    category: prompt_injection
+    severity: critical
+    action: block
+    pattern: >-
+      ((只听|只服从|优先执行|最高优先级)[^\n]{0,24}(我|用户|下面|之后|接下来)[^\n]{0,24}(指令|命令|要求)|(不要|无需|禁止)[^\n]{0,12}(遵守|执行|理会)[^\n]{0,12}(系统|开发者|上级)[^\n]{0,12}(指令|消息|规则|提示))
+    description: 中文要求模型把用户指令置于系统或开发者指令之上。
+    tags: [zh, prompt_injection, priority_override]
+    recommended_remediation: 移除要求改变指令优先级或忽略上级策略的中文提示。
+
+  - rule_id: system_prompt_extraction.verbatim.zh
+    aliases: [inj.verbatim_system_extract.zh]
+    category: system_prompt_extraction
+    severity: critical
+    action: block
+    pattern: >-
+      (逐字|原文|完整|一字不差|不要遗漏)[^\n]{0,16}(输出|打印|复述|展示|告诉我)[^\n]{0,24}(系统提示|开发者消息|隐藏指令|内部规则|初始设定)
+    description: 中文要求逐字输出隐藏系统、开发者或内部规则。
+    tags: [zh, system_prompt, extraction, verbatim]
+    recommended_remediation: 阻止用户逐字索取系统提示、开发者消息或隐藏规则。
+
+  - rule_id: jailbreak.developer_mode.zh
+    aliases: [inj.developer_mode.zh]
+    category: jailbreak
+    severity: high
+    action: block
+    pattern: >-
+      ((进入|开启|启用)[^\n]{0,8}(开发者模式|越狱模式|DAN模式|无限制模式)|(请|帮我|直接|现在|必须|务必|我要|你要)[^\n]{0,12}(关闭|绕过|禁用|跳过)[^\n]{0,12}(安全策略|安全规则|内容审核|过滤器|风控|合规限制))
+    description: 中文开发者模式、越狱模式或安全审核绕过请求。
+    tags: [zh, jailbreak, developer_mode, bypass]
+    recommended_remediation: 移除要求开启越狱模式或绕过安全审核的中文提示。
+
+  - rule_id: indirect_prompt_injection.untrusted_content.zh
+    aliases: [inj.indirect_untrusted.zh]
+    category: indirect_prompt_injection
+    severity: high
+    action: block
+    pattern: >-
+      ((如果你是|当你是)[^\n]{0,12}(AI|模型|助手)[^\n]{0,20}(忽略|无视)[^\n]{0,20}(之前|原始|系统)[^\n]{0,20}(指令|任务|规则)|(阅读到这里|看到这段|处理本文档时)[^\n]{0,30}(忽略|无视|覆盖)[^\n]{0,20}(之前|上面|原始)[^\n]{0,20}(指令|任务))
+    description: 中文文档或工具输出中的间接提示词注入。
+    tags: [zh, indirect_prompt_injection, rag, tool_result]
+    recommended_remediation: 将检索内容或工具输出视为不可信数据，移除其中的控制指令。
 
 sensitive:
   - rule_id: secret.openai_key.universal

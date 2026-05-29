@@ -207,11 +207,14 @@ async def chat_completions(request: Request) -> Response:
     model = str(body.get("model", ""))
     request_segments = extract_request_segments(body)
     request_text = _join_payload_text(request_segments)
+    input_scan_text = _request_scan_text(request_segments, policy)
     event = _base_event(trace_id, request, started, model=model, stream=stream, auth=auth, policy=policy, rate_limit=rate_limit)
     event["prompt_sha256"] = _sha256(request_text)
-    event["input_segments"] = _payload_segment_summary(request_segments)
+    event["input_segments"] = _payload_segment_summary(request_segments, policy)
+    if input_scan_text != request_text:
+        event["scanned_prompt_sha256"] = _sha256(input_scan_text)
 
-    input_scan = await _scan_input_safely(request_text, policy, event) if policy.input_scanning else None
+    input_scan = await _scan_input_safely(input_scan_text, policy, event) if policy.input_scanning else None
     if input_scan is None and event.get("reason") == "scanner_failure" and settings.fail_closed:
         event.update({"decision": "blocked", "status_code": 503, **_finding_fields([])})
         _audit(event, policy)
@@ -862,13 +865,28 @@ def _join_payload_text(segments: list[PayloadTextSegment]) -> str:
     return "\n".join(segment.text for segment in segments if segment.text)
 
 
-def _payload_segment_summary(segments: list[PayloadTextSegment]) -> dict[str, Any]:
+def _request_scan_text(segments: list[PayloadTextSegment], policy: RoutePolicy) -> str:
+    return "\n".join(segment.text for segment in segments if segment.text and _segment_scanned(segment, policy))
+
+
+def _segment_scanned(segment: PayloadTextSegment, policy: RoutePolicy) -> bool:
+    if segment.kind == "tool_call_arguments":
+        return policy.scan_tool_arguments
+    if segment.kind == "tool_result":
+        return policy.scan_tool_results
+    return True
+
+
+def _payload_segment_summary(segments: list[PayloadTextSegment], policy: RoutePolicy) -> dict[str, Any]:
     by_kind = Counter(segment.kind for segment in segments if segment.kind)
     by_role = Counter(segment.role or "unknown" for segment in segments)
+    scanned_by_kind = Counter(segment.kind for segment in segments if segment.kind and _segment_scanned(segment, policy))
     return {
         "total": len(segments),
+        "scanned": sum(scanned_by_kind.values()),
         "by_kind": dict(sorted(by_kind.items())),
         "by_role": dict(sorted(by_role.items())),
+        "scanned_by_kind": dict(sorted(scanned_by_kind.items())),
     }
 
 

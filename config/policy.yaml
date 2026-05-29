@@ -9,6 +9,8 @@ default:
   redact_inputs: true
   redact_outputs: true
   block_prompt_injection: true
+  scan_tool_arguments: true
+  scan_tool_results: true
   audit: true
   blocked_status_code: 403
   disabled_rules: []
@@ -22,6 +24,8 @@ routes:
     redact_inputs: true
     redact_outputs: true
     block_prompt_injection: true
+    scan_tool_arguments: true
+    scan_tool_results: true
     blocked_status_code: 403
     disabled_rules: []
     disabled_categories: []

@@ -27,6 +27,8 @@ routes:
     path: /v1/chat/completions
     blocked_status_code: 451
     output_scanning: false
+    scan_tool_arguments: false
+    scan_tool_results: false
     disabled_rules:
       - inj.ignore_previous.en
 """,
@@ -37,6 +39,8 @@ routes:
             self.assertEqual(policy.name, "strict_chat")
             self.assertEqual(policy.blocked_status_code, 451)
             self.assertFalse(policy.output_scanning)
+            self.assertFalse(policy.scan_tool_arguments)
+            self.assertFalse(policy.scan_tool_results)
             self.assertTrue(policy.redact_outputs)
             self.assertEqual(policy.disabled_categories, ("pii", "secret"))
             self.assertEqual(policy.disabled_rules, ("inj.ignore_previous.en",))

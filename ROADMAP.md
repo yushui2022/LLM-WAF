@@ -597,9 +597,11 @@ surfaces is a meaningful coverage expansion and a strong differentiator.
 - Scanner/gateway path: scan these segments through the same rule + semantic
   pipeline, tagging findings with `source="tool_call"` / `source="tool_result"`
   so audit and policy can treat them distinctly. (partially done 2026-05-29:
-  audit records safe segment counts; per-finding source tagging pending)
+  audit records safe segment counts and route policy can include/exclude tool
+  arguments and tool results; per-finding source tagging pending)
 - `app/policy.py`: add per-route toggles
-  (`scan_tool_arguments`, `scan_tool_results`, with safe defaults).
+  (`scan_tool_arguments`, `scan_tool_results`, with safe defaults). (done
+  2026-05-29)
 - `tests/`: add malicious-indirect-injection samples (instruction smuggled in a
   fake "search result") and benign tool-result hard negatives.
 - README + `docs/protocol-support.md`: document the new scan surfaces and

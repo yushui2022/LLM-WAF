@@ -138,6 +138,8 @@ default:
   redact_inputs: true
   redact_outputs: true
   block_prompt_injection: true
+  scan_tool_arguments: true
+  scan_tool_results: true
   audit: true
   blocked_status_code: 403
   disabled_rules: []
@@ -148,6 +150,8 @@ routes:
     path: /v1/chat/completions
     input_scanning: true
     output_scanning: true
+    scan_tool_arguments: true
+    scan_tool_results: true
 
   - name: metadata_passthrough
     path: /v1/models
@@ -165,6 +169,8 @@ Supported route fields:
 | `redact_inputs` | Replace detected PII/secrets before forwarding upstream. |
 | `redact_outputs` | Replace detected PII/secrets/system-prompt leak hints in responses. |
 | `block_prompt_injection` | Block high-confidence prompt-injection findings. |
+| `scan_tool_arguments` | Include OpenAI-compatible `tool_calls[].function.arguments` in input scanning. Defaults to `true`. |
+| `scan_tool_results` | Include `messages[]` with `role: tool` in input scanning. Defaults to `true`. |
 | `audit` | Write JSONL audit events for the route. |
 | `blocked_status_code` | HTTP status for WAF-blocked requests on the route. |
 | `disabled_rules` | Rule IDs to disable for this route, useful for controlled false-positive tuning. |

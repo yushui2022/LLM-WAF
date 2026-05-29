@@ -18,6 +18,8 @@ class RoutePolicy:
     redact_inputs: bool = True
     redact_outputs: bool = True
     block_prompt_injection: bool = True
+    scan_tool_arguments: bool = True
+    scan_tool_results: bool = True
     audit: bool = True
     blocked_status_code: int = 403
     disabled_rules: tuple[str, ...] = ()
@@ -75,6 +77,8 @@ def _merge_policy(base: RoutePolicy, raw: Any, path: str, name: str) -> RoutePol
         "redact_inputs",
         "redact_outputs",
         "block_prompt_injection",
+        "scan_tool_arguments",
+        "scan_tool_results",
         "audit",
     ):
         if field in raw:

@@ -117,10 +117,12 @@ def _render_filters(events: list[dict[str, Any]], active_filters: dict[str, str]
     decisions = _options(["allowed", "redacted", "blocked", "error"], _event_values(events, "decision"))
     categories = _options([], _event_finding_values(events, "category"))
     severities = _options(["critical", "high", "medium", "low", "info"], _event_finding_values(events, "severity"))
+    sources = _options([], _event_finding_values(events, "source"))
     return f"""<form class="filters" method="get" action="/dashboard">
       {_select("decision", "Decision", decisions, active_filters.get("decision", ""))}
       {_select("category", "Category", categories, active_filters.get("category", ""))}
       {_select("severity", "Severity", severities, active_filters.get("severity", ""))}
+      {_select("source", "Source", sources, active_filters.get("source", ""))}
       <button type="submit">Apply</button>
       <a class="clear" href="/dashboard">Clear</a>
     </form>"""
@@ -140,7 +142,11 @@ def _select(name: str, label: str, options: list[str], selected: str) -> str:
 def _normalize_filters(filters: dict[str, str] | None) -> dict[str, str]:
     if not filters:
         return {}
-    return {key: str(filters.get(key, "")).strip() for key in ("decision", "category", "severity") if str(filters.get(key, "")).strip()}
+    return {
+        key: str(filters.get(key, "")).strip()
+        for key in ("decision", "category", "severity", "source")
+        if str(filters.get(key, "")).strip()
+    }
 
 
 def _filter_events(events: list[dict[str, Any]], filters: dict[str, str]) -> list[dict[str, Any]]:
@@ -160,6 +166,10 @@ def _matches_filters(event: dict[str, Any], filters: dict[str, str]) -> bool:
 
     severity = filters.get("severity")
     if severity and severity not in _finding_values(event, "severity"):
+        return False
+
+    source = filters.get("source")
+    if source and source not in _finding_values(event, "source"):
         return False
 
     return True
@@ -245,6 +255,11 @@ def _render_finding_summary(event: dict[str, Any]) -> str:
         for category, count in list(by_category.items())[:3]:
             badges.append(_tag(f"{category}:{count}"))
 
+    by_source = summary.get("by_source", {})
+    if isinstance(by_source, dict):
+        for source, count in list(by_source.items())[:3]:
+            badges.append(_tag(f"{source}:{count}"))
+
     if not badges:
         return ""
     return '<div class="tags">' + "".join(badges) + "</div>"
@@ -255,6 +270,7 @@ def _render_finding(finding: dict[str, Any]) -> str:
     category = str(finding.get("category", "unknown") or "unknown")
     severity = str(finding.get("severity", "unknown") or "unknown")
     action = str(finding.get("action", "unknown") or "unknown")
+    source = str(finding.get("source", "unknown") or "unknown")
     evidence = escape(str(finding.get("evidence", "")))
     return (
         '<div class="finding">'
@@ -262,6 +278,7 @@ def _render_finding(finding: dict[str, Any]) -> str:
         f"{_tag(severity, css_class=severity)}"
         f"{_tag(category)}"
         f"{_tag(action)}"
+        f"{_tag(source)}"
         f'<div class="evidence">{evidence}</div>'
         "</div>"
     )
@@ -277,8 +294,10 @@ def _tag(text: str, css_class: str = "") -> str:
 def _summarize_findings(findings: list[dict[str, Any]]) -> dict[str, Any]:
     by_category = Counter(str(finding.get("category", "unknown") or "unknown") for finding in findings)
     by_severity = Counter(str(finding.get("severity", "unknown") or "unknown") for finding in findings)
+    by_source = Counter(str(finding.get("source", "unknown") or "unknown") for finding in findings)
     return {
         "by_category": dict(by_category),
+        "by_source": dict(by_source),
         "max_severity": _max_severity(by_severity),
     }
 

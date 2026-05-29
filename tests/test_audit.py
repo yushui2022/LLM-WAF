@@ -44,6 +44,7 @@ class AuditLogTests(unittest.TestCase):
                         "by_category": {"prompt_injection": 1},
                         "by_severity": {"critical": 1},
                         "by_action": {"block": 1},
+                        "by_source": {"tool_result": 1},
                         "max_severity": "critical",
                     },
                     "findings": [
@@ -52,6 +53,7 @@ class AuditLogTests(unittest.TestCase):
                             "category": "prompt_injection",
                             "severity": "critical",
                             "action": "block",
+                            "source": "tool_result",
                             "evidence": "Ignore all previous instructions",
                         }
                     ],
@@ -60,6 +62,7 @@ class AuditLogTests(unittest.TestCase):
         )
         self.assertIn("inj.ignore_previous.en", html)
         self.assertIn("prompt_injection:1", html)
+        self.assertIn("tool_result:1", html)
         self.assertIn("critical", html)
 
     def test_dashboard_filters_by_finding_category(self):
@@ -79,6 +82,7 @@ class AuditLogTests(unittest.TestCase):
                         "by_category": {"prompt_injection": 1},
                         "by_severity": {"critical": 1},
                         "by_action": {"block": 1},
+                        "by_source": {"tool_result": 1},
                         "max_severity": "critical",
                     },
                     "findings": [
@@ -87,6 +91,7 @@ class AuditLogTests(unittest.TestCase):
                             "category": "prompt_injection",
                             "severity": "critical",
                             "action": "block",
+                            "source": "tool_result",
                             "evidence": "Ignore all previous instructions",
                         }
                     ],
@@ -96,6 +101,41 @@ class AuditLogTests(unittest.TestCase):
         )
         self.assertIn("blocked-row", html)
         self.assertNotIn("allowed-row", html)
+
+    def test_dashboard_filters_by_finding_source(self):
+        html = render_dashboard(
+            [
+                {
+                    "trace_id": "message-row",
+                    "decision": "blocked",
+                    "finding_count": 1,
+                    "finding_summary": {
+                        "by_category": {"prompt_injection": 1},
+                        "by_severity": {"critical": 1},
+                        "by_action": {"block": 1},
+                        "by_source": {"message_content": 1},
+                        "max_severity": "critical",
+                    },
+                    "findings": [{"source": "message_content", "category": "prompt_injection", "severity": "critical"}],
+                },
+                {
+                    "trace_id": "tool-row",
+                    "decision": "blocked",
+                    "finding_count": 1,
+                    "finding_summary": {
+                        "by_category": {"prompt_injection": 1},
+                        "by_severity": {"critical": 1},
+                        "by_action": {"block": 1},
+                        "by_source": {"tool_result": 1},
+                        "max_severity": "critical",
+                    },
+                    "findings": [{"source": "tool_result", "category": "prompt_injection", "severity": "critical"}],
+                },
+            ],
+            filters={"source": "tool_result"},
+        )
+        self.assertIn("tool-row", html)
+        self.assertNotIn("message-row", html)
 
 
 if __name__ == "__main__":

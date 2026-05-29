@@ -223,18 +223,21 @@ class GatewayTests(unittest.TestCase):
                     "category": "prompt_injection",
                     "severity": "critical",
                     "action": "block",
+                    "source": "tool_result",
                 },
                 {
                     "rule_id": "pii.email",
                     "category": "pii",
                     "severity": "medium",
                     "action": "redact",
+                    "source": "message_content",
                 },
             ]
         )
         self.assertEqual(fields["finding_count"], 2)
         self.assertEqual(fields["finding_summary"]["by_category"]["prompt_injection"], 1)
         self.assertEqual(fields["finding_summary"]["by_action"]["redact"], 1)
+        self.assertEqual(fields["finding_summary"]["by_source"]["tool_result"], 1)
         self.assertEqual(fields["finding_summary"]["max_severity"], "critical")
 
     def test_payload_segment_summary_does_not_include_text(self):

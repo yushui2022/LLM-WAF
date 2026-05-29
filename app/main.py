@@ -1027,19 +1027,23 @@ def _finding_summary(findings: list[dict[str, Any]]) -> dict[str, Any]:
     by_category: Counter[str] = Counter()
     by_severity: Counter[str] = Counter()
     by_action: Counter[str] = Counter()
+    by_source: Counter[str] = Counter()
 
     for finding in findings:
         category = str(finding.get("category", "unknown") or "unknown")
         severity = str(finding.get("severity", "unknown") or "unknown")
         action = str(finding.get("action", "unknown") or "unknown")
+        source = str(finding.get("source", "unknown") or "unknown")
         by_category[category] += 1
         by_severity[severity] += 1
         by_action[action] += 1
+        by_source[source] += 1
 
     return {
         "by_category": dict(by_category),
         "by_severity": dict(by_severity),
         "by_action": dict(by_action),
+        "by_source": dict(by_source),
         "max_severity": _max_severity(by_severity),
     }
 

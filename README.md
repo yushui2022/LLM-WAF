@@ -626,6 +626,18 @@ python -B scripts/evaluate.py --direction input --dataset tests/eval_set_regex_m
 
 The eval output includes aggregate metrics and per-category metrics. For stricter rule work, add `--min-category-recall 0.95` so a strong overall score cannot hide a weak category. The default input eval set lives at `tests/eval_set.jsonl`; the default output eval set lives at `tests/output_eval_set.jsonl`. `tests/eval_set_regex_miss.jsonl` is intentionally not a per-PR pass/fail gate yet: it records paraphrased, multilingual, and indirect-injection samples the deterministic regex layer may miss, plus benign hard negatives. Use it to measure whether semantic scanners or new rules improve recall without quietly increasing false positives.
 
+#### Measured detection numbers
+
+These are reproducible from the committed eval sets (deterministic regex layer only, no semantic scanner). Run the command in each row to reproduce.
+
+| Eval set | Samples | Precision | Recall | Reproduce |
+| --- | --- | --- | --- | --- |
+| `tests/eval_set.jsonl` (curated, per-PR gate) | 60 | 100% | 100% | `python scripts/evaluate.py --direction input` |
+| `tests/output_eval_set.jsonl` (curated, per-PR gate) | 20 | 100% | 100% | `python scripts/evaluate.py --direction output --dataset tests/output_eval_set.jsonl` |
+| `tests/eval_set_extended.jsonl` (larger, nightly) | 52 | 100% | 81% | `python scripts/evaluate.py --direction input --dataset tests/eval_set_extended.jsonl --show-misses` |
+
+The curated set is small and tuned for the shipped rules, so its 100% recall is **not** a claim of real-world coverage. The extended set is the honest signal: the regex layer holds 100% precision (zero false positives on hard benign negatives) but recall drops to ~81% on paraphrased and reordered attacks, which is exactly the gap the optional semantic layer and new rules are meant to close. The extended set runs offline; to grow it from permissively-licensed public datasets, see `scripts/import_eval_datasets.py`.
+
 Create human-review candidates from real audit logs:
 
 ```bash

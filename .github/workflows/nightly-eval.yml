@@ -1,0 +1,46 @@
+name: Nightly Extended Eval
+
+# The per-PR CI (ci.yml) gates on the small curated set for speed and
+# determinism. This scheduled job runs the larger extended corpus, which
+# surfaces real coverage gaps. It gates strictly on precision (no false
+# positives on hard benign negatives) and loosely on recall, since the
+# extended set intentionally includes attacks current regex rules miss.
+
+on:
+  schedule:
+    - cron: "27 4 * * *"
+  workflow_dispatch:
+
+jobs:
+  extended-eval:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -e ".[dev]"
+
+      - name: Run extended input eval
+        run: >
+          python -B scripts/evaluate.py
+          --direction input
+          --dataset tests/eval_set_extended.jsonl
+          --show-misses
+          --min-precision 0.95
+          --min-recall 0.75
+          | tee extended-eval-report.txt
+
+      - name: Upload eval report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: extended-eval-report
+          path: extended-eval-report.txt

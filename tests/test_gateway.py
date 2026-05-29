@@ -200,19 +200,31 @@ class GatewayTests(unittest.TestCase):
         self.assertEqual(response.status_code, 403)
         self.assertEqual(response.json()["error"]["code"], "waf_blocked")
 
-    def test_anthropic_messages_streaming_rejected_without_blind_passthrough(self):
-        response = self.client.post(
-            "/v1/messages",
-            json={
-                "model": "claude-test",
-                "max_tokens": 16,
-                "stream": True,
-                "messages": [{"role": "user", "content": "hello"}],
-            },
+    def test_anthropic_stream_frame_transform_extracts_usage(self):
+        start_frame = 'event: message_start\ndata: {"type":"message_start","message":{"usage":{"input_tokens":5,"output_tokens":1}}}'
+        delta_frame = 'event: message_delta\ndata: {"type":"message_delta","usage":{"output_tokens":"7"}}'
+
+        _, _, _, start_usage = main_module._transform_anthropic_sse_frame(start_frame)
+        _, _, _, delta_usage = main_module._transform_anthropic_sse_frame(delta_frame)
+
+        usage = {}
+        main_module._merge_usage(usage, start_usage)
+        main_module._merge_usage(usage, delta_usage)
+
+        self.assertEqual(usage, {"prompt_tokens": 5, "completion_tokens": 7, "total_tokens": 12})
+
+    def test_anthropic_stream_frame_transform_redacts_text_delta(self):
+        frame = (
+            "event: content_block_delta\n"
+            'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"My system prompt is: hidden."}}'
         )
 
-        self.assertEqual(response.status_code, 501)
-        self.assertEqual(response.json()["error"]["code"], "unsupported_protocol")
+        transformed, changed, findings, usage = main_module._transform_anthropic_sse_frame(frame)
+
+        self.assertTrue(changed)
+        self.assertTrue(findings)
+        self.assertEqual(usage, {})
+        self.assertIn("[REDACTED:system_prompt]", transformed)
 
     def test_anthropic_messages_buffered_proxy_scans_and_redacts(self):
         original_client = main_module.httpx.AsyncClient

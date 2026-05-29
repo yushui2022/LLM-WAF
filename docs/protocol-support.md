@@ -1,6 +1,6 @@
 # Protocol Support
 
-LLM-WAF is primarily an OpenAI-compatible LLM firewall. Its strongest WAF behavior is implemented around the OpenAI chat completions request and response shape, with initial native Anthropic Messages support for non-streaming requests.
+LLM-WAF is primarily an OpenAI-compatible LLM firewall. Its strongest WAF behavior is implemented around the OpenAI chat completions request and response shape, with native Anthropic Messages support for streaming and non-streaming requests.
 
 This document is intentionally explicit so users do not assume native protocol coverage that does not exist yet.
 
@@ -12,7 +12,7 @@ This document is intentionally explicit so users do not assume native protocol c
 | OpenAI-compatible `POST /v1/chat/completions` with SSE streaming | Supported | Rolling-window scan + one-frame hold-back by default (`STREAM_HOLD_BACK_FRAMES=1`); raise for stricter cross-frame redaction, set `0` for lowest first-token latency. |
 | OpenAI-compatible `/v1/*` non-chat routes | Passthrough | Safe non-generation routes get auth, rate limit, and audit only. Request/response WAF scanning is not applied to generic passthrough routes. |
 | Anthropic native `POST /v1/messages` with `stream=false` | Supported | Input scan, input redaction, `system` text scan, `tool_result` scan, `tool_use.input` scan, output scan, output redaction, usage extraction, Anthropic header forwarding, and audit with `protocol=anthropic_native`. |
-| Anthropic native `POST /v1/messages` with `stream=true` | Blocked by default | Native Anthropic streaming is not enabled until protocol-specific SSE/event transformation has output scanning and cross-frame tests. Use OpenAI-compatible streaming for now. |
+| Anthropic native `POST /v1/messages` with `stream=true` | Supported | Protocol-specific SSE/event transformation for `content_block_delta` text, thinking, and `input_json_delta.partial_json`; rolling-window scan + one-frame hold-back by default; `message_start` / `message_delta` usage extraction; Anthropic header forwarding; audit with `protocol=anthropic_native`. |
 | OpenAI `/v1/responses` and legacy `/v1/completions` | Blocked by default | Not scanned by the current chat-completions WAF path. |
 | Gemini native `generateContent` / `streamGenerateContent` | Not supported natively | Use an OpenAI-compatible endpoint or adapter in front of LLM-WAF for now. |
 
@@ -51,7 +51,7 @@ Native protocol support should not be added as a thin blind proxy. Each native a
 6. Streaming fixtures that prove cross-frame findings are still handled.
 7. Audit fields that identify the protocol and provider.
 
-Until those requirements are met for a route and mode, native support should stay marked as not supported. Anthropic `/v1/messages` non-streaming now meets this baseline; Anthropic native streaming does not yet.
+Until those requirements are met for a route and mode, native support should stay marked as not supported. Anthropic `/v1/messages` now meets this baseline for both buffered and streaming responses.
 
 ## Unsupported Generation Route Guard
 
@@ -60,7 +60,7 @@ Known generation routes that are not scanned by the current WAF path return `501
 - `/v1/responses`
 - `/v1/completions`
 
-Anthropic native `/v1/messages` is no longer a generic passthrough route: non-streaming requests are scanned by the Anthropic adapter, while native streaming requests are rejected until streaming transformation is implemented.
+Anthropic native `/v1/messages` is no longer a generic passthrough route: streaming and non-streaming requests are scanned by the Anthropic adapter.
 
 This prevents a dangerous silent failure mode where a native client appears to work through the gateway but bypasses prompt and output scanning.
 
@@ -77,7 +77,7 @@ Use that only for controlled compatibility tests. It is not WAF protection.
 1. Keep the current OpenAI-compatible WAF path strict and well-tested.
 2. Split payload extraction into protocol-specific modules, for example `openai_compat`, `anthropic`, and `gemini`.
 3. Add fixture-based conformance tests before enabling any native route.
-4. Add Anthropic native streaming support with event fixtures and cross-frame leakage tests.
-5. Add native Gemini after Anthropic proves the adapter pattern across both buffered and streaming modes.
+4. Add native Gemini after Anthropic proves the adapter pattern across both buffered and streaming modes.
+5. Add OpenAI `/v1/responses` support only after it has route-specific request, response, and streaming fixtures.
 
 This keeps the project focused on firewall correctness instead of becoming a generic provider router.

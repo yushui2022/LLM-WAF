@@ -4,7 +4,7 @@ This roadmap keeps the project focused on its core purpose: **a zero-intrusion L
 
 ## Product Positioning
 
-LLM-WAF is an OpenAI-compatible security gateway for LLM applications.
+LLM-WAF is an OpenAI-compatible security gateway for LLM applications, with native adapters only where protocol-specific WAF coverage exists.
 
 Primary promise:
 
@@ -26,7 +26,7 @@ These are intentionally not the main direction:
 - Training a large model from scratch.
 - Full multi-provider router competing with LiteLLM / OneAPI.
 - Heavy React dashboard or complex frontend build.
-- Native Anthropic/Gemini protocol support before the WAF core is solid.
+- Untested native provider passthrough. Native adapters must have protocol-specific extraction, redaction, streaming fixtures, and audit coverage before being enabled.
 
 ## Current Baseline
 
@@ -34,6 +34,7 @@ Implemented:
 
 - OpenAI-compatible `/v1/chat/completions` proxy.
 - Streaming and non-streaming request handling.
+- Anthropic native `/v1/messages` streaming and non-streaming scanning.
 - Input scanner for high-confidence prompt injection and jailbreak patterns.
 - Sensitive data redaction for PII and common secrets.
 - Output scanner for sensitive data and basic system-prompt leak hints.
@@ -233,7 +234,8 @@ Potential future work:
 - Export audit events to OpenTelemetry.
 - Admin UI for policy edits.
 - Protocol support matrix and native-adapter requirements. (done)
-- Native provider adapters after OpenAI-compatible path is mature.
+- Anthropic native `/v1/messages` buffered and streaming adapter. (done)
+- Native Gemini adapter after Anthropic proves the adapter pattern.
 
 ## Near-Term Direction
 

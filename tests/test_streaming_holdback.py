@@ -83,8 +83,21 @@ def _post_stream(client: TestClient, body: dict) -> tuple[int, str]:
         return resp.status_code, b"".join(chunks).decode("utf-8", errors="replace")
 
 
+def _post_anthropic_stream(client: TestClient, body: dict) -> tuple[int, str]:
+    body = {**body, "stream": True}
+    with client.stream("POST", "/v1/messages", json=body) as resp:
+        chunks: list[bytes] = []
+        for chunk in resp.iter_bytes():
+            chunks.append(chunk)
+        return resp.status_code, b"".join(chunks).decode("utf-8", errors="replace")
+
+
 def _sse_data_frame(payload: dict) -> bytes:
     return (f"data: {json.dumps(payload)}\n\n").encode("utf-8")
+
+
+def _anthropic_sse_event_frame(event: str, payload: dict) -> bytes:
+    return (f"event: {event}\ndata: {json.dumps(payload)}\n\n").encode("utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -207,6 +220,36 @@ class StreamingHoldBackTests(unittest.TestCase):
         # The usage frame is forwarded to the client (it is not stripped).
         self.assertIn("total_tokens", body)
         self.assertIn("5", body)
+
+    def test_anthropic_messages_stream_holdback_redacts_cross_frame_leak(self):
+        object.__setattr__(main_module.settings, "stream_hold_back_frames", 1)
+        frames = [
+            _anthropic_sse_event_frame(
+                "content_block_delta",
+                {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "My system "}},
+            ),
+            _anthropic_sse_event_frame(
+                "content_block_delta",
+                {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "prompt is: hidden policy."}},
+            ),
+            _anthropic_sse_event_frame("message_stop", {"type": "message_stop"}),
+        ]
+        main_module.httpx.AsyncClient = _FakeAsyncClient
+        _install_fake_upstream(frames)
+
+        status, body = _post_anthropic_stream(
+            self.client,
+            {
+                "model": "claude-test",
+                "max_tokens": 16,
+                "messages": [{"role": "user", "content": "hello"}],
+            },
+        )
+
+        self.assertEqual(status, 200)
+        self.assertNotIn("My system ", body)
+        self.assertIn("[REDACTED:stream_hold_back]", body)
+        self.assertIn("[REDACTED:stream_window]", body)
 
 
 if __name__ == "__main__":

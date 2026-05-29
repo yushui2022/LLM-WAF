@@ -13,6 +13,7 @@ import logging
 import time
 import uuid
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import Any
@@ -373,30 +374,26 @@ async def anthropic_messages(request: Request) -> Response:
         _audit(event, policy)
         return _blocked_response(trace_id, findings, policy)
 
-    if stream:
-        event.update(
-            {
-                "decision": "blocked",
-                "status_code": 501,
-                "reason": "unsupported_anthropic_streaming",
-                "latency_ms": _elapsed_ms(started),
-                **_finding_fields(findings),
-            }
-        )
-        _audit(event, policy)
-        return _error_response(
-            trace_id,
-            501,
-            "unsupported_protocol",
-            "Anthropic native streaming is not scanned yet. Set stream=false or use OpenAI-compatible /v1/chat/completions.",
-        )
-
     forwarded_body = body
     input_redacted = bool(input_scan and input_scan.redacted and policy.redact_inputs)
     if input_redacted:
         forwarded_body = redact_anthropic_request_body(
             body,
             lambda text: scanner.redact_sensitive(text, policy.disabled_rules, policy.disabled_categories),
+        )
+
+    if stream:
+        return await _proxy_streaming(
+            request,
+            trace_id,
+            started,
+            forwarded_body,
+            event,
+            findings,
+            input_redacted,
+            auth,
+            policy,
+            protocol="anthropic_native",
         )
 
     return await _proxy_anthropic_buffered(request, trace_id, started, forwarded_body, event, findings, input_redacted, auth, policy)
@@ -728,9 +725,14 @@ async def _proxy_streaming(
     input_redacted: bool,
     auth: AuthResult,
     policy: RoutePolicy,
+    protocol: str = "openai_compat",
 ) -> Response:
     upstream_url = _upstream_url(request.url.path)
-    headers = _forward_headers(request, trace_id, auth)
+    headers = (
+        _forward_anthropic_headers(request, trace_id, auth) if protocol == "anthropic_native" else _forward_headers(request, trace_id, auth)
+    )
+    transform_frame = _transform_anthropic_sse_frame if protocol == "anthropic_native" else _transform_sse_frame
+    redact_frame_text = _redact_anthropic_sse_frame_text if protocol == "anthropic_native" else _redact_sse_frame_text
     client = httpx.AsyncClient(timeout=None)
 
     upstream_started = time.perf_counter()
@@ -782,7 +784,7 @@ async def _proxy_streaming(
                     frame, buffer = buffer.split("\n\n", 1)
                     scanner_started = time.perf_counter()
                     try:
-                        transformed, changed, frame_findings, frame_usage = _transform_sse_frame(
+                        transformed, changed, frame_findings, frame_usage = transform_frame(
                             frame,
                             redact_outputs=policy.redact_outputs,
                             disabled_rule_ids=policy.disabled_rules,
@@ -801,12 +803,13 @@ async def _proxy_streaming(
                     output_redacted = output_redacted or changed
                     output_findings.extend(frame_findings)
                     if frame_usage:
-                        output_usage.update(frame_usage)
+                        _merge_usage(output_usage, frame_usage)
                     frame_record = transformed + "\n\n"
                     if stream_hold_back.enabled:
                         for ready_frame in stream_hold_back.add(
                             frame_record,
                             redact_pending=_has_stream_window_finding(frame_findings),
+                            redact_frame=redact_frame_text,
                         ):
                             yield ready_frame
                     else:
@@ -815,7 +818,7 @@ async def _proxy_streaming(
             if tail:
                 scanner_started = time.perf_counter()
                 try:
-                    transformed, changed, frame_findings, frame_usage = _transform_sse_frame(
+                    transformed, changed, frame_findings, frame_usage = transform_frame(
                         tail,
                         redact_outputs=policy.redact_outputs,
                         disabled_rule_ids=policy.disabled_rules,
@@ -834,11 +837,12 @@ async def _proxy_streaming(
                 output_redacted = output_redacted or changed
                 output_findings.extend(frame_findings)
                 if frame_usage:
-                    output_usage.update(frame_usage)
+                    _merge_usage(output_usage, frame_usage)
                 if stream_hold_back.enabled:
                     for ready_frame in stream_hold_back.add(
                         transformed,
                         redact_pending=_has_stream_window_finding(frame_findings),
+                        redact_frame=redact_frame_text,
                     ):
                         yield ready_frame
                 else:
@@ -938,6 +942,154 @@ def _transform_sse_frame(
     return "\n".join(out_lines), changed, findings, usage
 
 
+def _transform_anthropic_sse_frame(
+    frame: str,
+    redact_outputs: bool = True,
+    disabled_rule_ids: tuple[str, ...] = (),
+    disabled_categories: tuple[str, ...] = (),
+    stream_scan_state: "StreamScanState | None" = None,
+) -> tuple[str, bool, list[dict[str, Any]], dict[str, int]]:
+    changed = False
+    findings: list[dict[str, Any]] = []
+    usage: dict[str, int] = {}
+    out_lines: list[str] = []
+
+    for line in frame.splitlines():
+        if not line.startswith("data:"):
+            out_lines.append(line)
+            continue
+        data = line[5:].strip()
+        if not data or data == "[DONE]":
+            out_lines.append(line)
+            continue
+        try:
+            payload = json.loads(data)
+        except json.JSONDecodeError:
+            out_lines.append(line)
+            continue
+
+        frame_usage = _extract_anthropic_stream_usage(payload)
+        if frame_usage:
+            _merge_usage(usage, frame_usage)
+
+        output_text = _extract_anthropic_stream_text(payload)
+        frame_findings: list[dict[str, Any]] = []
+        if output_text:
+            if stream_scan_state is not None and stream_scan_state.enabled:
+                frame_findings = stream_scan_state.scan(output_text, disabled_rule_ids, disabled_categories)
+            else:
+                scan = scanner.scan_output(output_text, disabled_rule_ids, disabled_categories)
+                frame_findings = scan.to_audit_findings(limit=5)
+            findings.extend(frame_findings)
+
+        payload_changed = False
+        if redact_outputs:
+            payload, payload_changed = _redact_anthropic_sse_payload(
+                payload,
+                lambda text: scanner.redact_output(text, disabled_rule_ids, disabled_categories),
+            )
+            if frame_findings and not payload_changed and stream_scan_state is not None and stream_scan_state.enabled:
+                payload, payload_changed = _redact_anthropic_sse_payload(
+                    payload,
+                    lambda text: "[REDACTED:stream_window]" if text else text,
+                )
+            changed = changed or payload_changed
+        out_lines.append("data: " + json_dumps(payload))
+
+    return "\n".join(out_lines), changed, findings, usage
+
+
+def _extract_anthropic_stream_text(payload: dict[str, Any]) -> str:
+    if payload.get("type") not in {"content_block_delta", "content_block_start"}:
+        return ""
+
+    texts: list[str] = []
+    delta = payload.get("delta")
+    if isinstance(delta, dict):
+        for key in ("text", "thinking", "partial_json"):
+            value = delta.get(key)
+            if isinstance(value, str):
+                texts.append(value)
+
+    content_block = payload.get("content_block")
+    if isinstance(content_block, dict):
+        for key in ("text", "thinking"):
+            value = content_block.get(key)
+            if isinstance(value, str):
+                texts.append(value)
+    return "\n".join(text for text in texts if text)
+
+
+def _redact_anthropic_sse_payload(payload: dict[str, Any], redact: Callable[[str], str]) -> tuple[dict[str, Any], bool]:
+    changed = False
+
+    delta = payload.get("delta")
+    if isinstance(delta, dict):
+        for key in ("text", "thinking", "partial_json"):
+            value = delta.get(key)
+            if not isinstance(value, str):
+                continue
+            redacted = redact(value)
+            if redacted != value:
+                delta[key] = redacted
+                changed = True
+
+    content_block = payload.get("content_block")
+    if isinstance(content_block, dict):
+        for key in ("text", "thinking"):
+            value = content_block.get(key)
+            if not isinstance(value, str):
+                continue
+            redacted = redact(value)
+            if redacted != value:
+                content_block[key] = redacted
+                changed = True
+
+    return payload, changed
+
+
+def _extract_anthropic_stream_usage(payload: dict[str, Any]) -> dict[str, int]:
+    payload_type = payload.get("type")
+    if payload_type == "message_start":
+        message = payload.get("message")
+        if isinstance(message, dict):
+            return extract_anthropic_usage(message)
+        return {}
+
+    if payload_type != "message_delta":
+        return {}
+    usage = payload.get("usage")
+    if not isinstance(usage, dict):
+        return {}
+
+    result: dict[str, int] = {}
+    input_tokens = _coerce_usage_count(usage.get("input_tokens"))
+    output_tokens = _coerce_usage_count(usage.get("output_tokens"))
+    if input_tokens is not None:
+        result["prompt_tokens"] = input_tokens
+    if output_tokens is not None:
+        result["completion_tokens"] = output_tokens
+    return result
+
+
+def _coerce_usage_count(value: Any) -> int | None:
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return None
+
+
+def _merge_usage(target: dict[str, int], partial: dict[str, int]) -> None:
+    target.update(partial)
+    prompt_tokens = target.get("prompt_tokens")
+    completion_tokens = target.get("completion_tokens")
+    if prompt_tokens is not None and completion_tokens is not None:
+        target["total_tokens"] = prompt_tokens + completion_tokens
+
+
 @dataclass
 class StreamScanState:
     window_chars: int = 4096
@@ -981,11 +1133,17 @@ class StreamHoldBackBuffer:
     def enabled(self) -> bool:
         return self.frame_count > 0
 
-    def add(self, frame: str, redact_pending: bool = False) -> list[str]:
+    def add(
+        self,
+        frame: str,
+        redact_pending: bool = False,
+        redact_frame: Callable[[str, str], str] | None = None,
+    ) -> list[str]:
         if not self.enabled:
             return [frame]
         if redact_pending and self.pending:
-            self.pending = [_redact_sse_frame_text(item, "[REDACTED:stream_hold_back]") for item in self.pending]
+            frame_redactor = redact_frame or _redact_sse_frame_text
+            self.pending = [frame_redactor(item, "[REDACTED:stream_hold_back]") for item in self.pending]
         self.pending.append(frame)
 
         ready: list[str] = []
@@ -1028,6 +1186,34 @@ def _redact_sse_frame_text(frame: str, replacement: str) -> str:
             out_lines.append(line)
             continue
         payload, _ = redact_sse_json_payload(payload, lambda text: replacement if text else text)
+        out_lines.append("data: " + json_dumps(payload))
+    return "\n".join(out_lines) + suffix
+
+
+def _redact_anthropic_sse_frame_text(frame: str, replacement: str) -> str:
+    suffix = "\n\n" if frame.endswith("\n\n") else ""
+    body = frame[:-2] if suffix else frame
+    transformed, _, _, _ = _transform_anthropic_sse_frame(
+        body,
+        redact_outputs=True,
+        stream_scan_state=None,
+    )
+
+    out_lines: list[str] = []
+    for line in transformed.splitlines():
+        if not line.startswith("data:"):
+            out_lines.append(line)
+            continue
+        data = line[5:].strip()
+        if not data or data == "[DONE]":
+            out_lines.append(line)
+            continue
+        try:
+            payload = json.loads(data)
+        except json.JSONDecodeError:
+            out_lines.append(line)
+            continue
+        payload, _ = _redact_anthropic_sse_payload(payload, lambda text: replacement if text else text)
         out_lines.append("data: " + json_dumps(payload))
     return "\n".join(out_lines) + suffix
 

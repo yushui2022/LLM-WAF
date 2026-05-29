@@ -26,6 +26,7 @@ from app.access import AuthResult, GatewayAuth, RateLimitResult, create_rate_lim
 from app.audit import AuditLog
 from app.config import settings
 from app.dashboard import render_dashboard
+from app.metrics import metrics_registry, record_event_metrics
 from app.policy import PolicyStore, RoutePolicy
 from app.pricing import PricingStore
 from app.security.models import Finding, ScanResult
@@ -137,12 +138,18 @@ async def index() -> dict[str, str]:
         "chat_completions": "/v1/chat/completions",
         "dashboard": "/dashboard",
         "health": "/health",
+        "metrics": "/metrics",
     }
 
 
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok", "service": settings.service_name, "version": "0.1.0"}
+
+
+@app.get("/metrics")
+async def metrics() -> Response:
+    return Response(metrics_registry.render(), media_type="text/plain; version=0.0.4; charset=utf-8")
 
 
 @app.get("/dashboard", response_class=HTMLResponse)
@@ -857,6 +864,7 @@ def _base_event(
 
 
 def _audit(event: dict[str, Any], policy: RoutePolicy) -> None:
+    record_event_metrics(event)
     if policy.audit:
         audit_log.append(event)
 

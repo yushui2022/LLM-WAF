@@ -12,12 +12,20 @@ from app.security.payload import PayloadTextSegment, extract_request_segments
 
 class GatewayTests(unittest.TestCase):
     def setUp(self):
+        main_module.metrics_registry.reset()
         self.client = TestClient(app)
 
     def test_health(self):
         response = self.client.get("/health")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["status"], "ok")
+
+    def test_metrics_endpoint_renders_prometheus_text(self):
+        response = self.client.get("/metrics")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("text/plain", response.headers["content-type"])
+        self.assertIn("llm_waf_requests_total", response.text)
+        self.assertIn("llm_waf_request_latency_ms", response.text)
 
     def test_blocks_before_upstream(self):
         response = self.client.post(
@@ -57,6 +65,9 @@ class GatewayTests(unittest.TestCase):
         self.assertEqual(body["error"]["code"], "waf_blocked")
         self.assertTrue(any(finding["source"] == "tool_result" for finding in body["error"]["findings"]))
         self.assertTrue(any("segment:tool_result" in finding.get("tags", ()) for finding in body["error"]["findings"]))
+        metrics = self.client.get("/metrics").text
+        self.assertIn('llm_waf_requests_total{decision="blocked"', metrics)
+        self.assertIn('source="tool_result"', metrics)
 
     def test_dashboard_renders(self):
         response = self.client.get("/dashboard")

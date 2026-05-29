@@ -303,6 +303,24 @@ Input audit events also include `input_segments` counts by payload kind and role
 
 Input findings from segmented OpenAI-compatible payloads carry source labels such as `message_content`, `tool_result`, and `tool_call`. Encoded or normalized variants keep both pieces, for example `tool_result:base64`.
 
+## Metrics
+
+LLM-WAF exposes Prometheus-compatible metrics at `/metrics` without adding a separate runtime dependency. The labels are intentionally low-cardinality so the endpoint is safe to scrape in production:
+
+- `llm_waf_requests_total{route,path,decision,status_code,stream}`
+- `llm_waf_request_latency_ms_bucket{route,path,decision,status_code,stream,le}`
+- `llm_waf_findings_total{category,severity,action,source}`
+- `llm_waf_scanner_errors_total{kind,fail_closed}`
+- `llm_waf_fail_closed_total{decision}`
+
+Example:
+
+```bash
+curl http://localhost:8080/metrics
+```
+
+See [docs/observability.md](docs/observability.md) for the metric list, scrape config, and example PromQL queries.
+
 ## Usage tracking
 
 When an upstream provider returns an OpenAI-compatible `usage` object, LLM-WAF records it in the audit event:

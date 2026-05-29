@@ -301,6 +301,8 @@ Audit events include both raw findings and a compact `finding_summary` grouped b
 
 Input audit events also include `input_segments` counts by payload kind and role, for example `message_content`, `tool_result`, and `tool_call_arguments`. The counts help confirm which OpenAI-compatible surfaces the WAF saw without storing the original segment text.
 
+Input findings from segmented OpenAI-compatible payloads carry source labels such as `message_content`, `tool_result`, and `tool_call`. Encoded or normalized variants keep both pieces, for example `tool_result:base64`.
+
 ## Usage tracking
 
 When an upstream provider returns an OpenAI-compatible `usage` object, LLM-WAF records it in the audit event:

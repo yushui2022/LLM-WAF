@@ -13,7 +13,7 @@ import logging
 import time
 import uuid
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import Any
 
@@ -28,7 +28,7 @@ from app.config import settings
 from app.dashboard import render_dashboard
 from app.policy import PolicyStore, RoutePolicy
 from app.pricing import PricingStore
-from app.security.models import ScanResult
+from app.security.models import Finding, ScanResult
 from app.security.payload import (
     PayloadTextSegment,
     extract_request_segments,
@@ -214,7 +214,7 @@ async def chat_completions(request: Request) -> Response:
     if input_scan_text != request_text:
         event["scanned_prompt_sha256"] = _sha256(input_scan_text)
 
-    input_scan = await _scan_input_safely(input_scan_text, policy, event) if policy.input_scanning else None
+    input_scan = await _scan_input_segments_safely(request_segments, policy, event) if policy.input_scanning else None
     if input_scan is None and event.get("reason") == "scanner_failure" and settings.fail_closed:
         event.update({"decision": "blocked", "status_code": 503, **_finding_fields([])})
         _audit(event, policy)
@@ -890,14 +890,84 @@ def _payload_segment_summary(segments: list[PayloadTextSegment], policy: RoutePo
     }
 
 
-async def _scan_input_safely(text: str, policy: RoutePolicy, event: dict[str, Any]) -> ScanResult | None:
+async def _scan_input_segments_safely(
+    segments: list[PayloadTextSegment],
+    policy: RoutePolicy,
+    event: dict[str, Any],
+) -> ScanResult | None:
+    scannable_segments = [segment for segment in segments if segment.text and _segment_scanned(segment, policy)]
+    joined_text = _join_payload_text(scannable_segments)
+    seen: set[tuple[str, str, str, str]] = set()
+    results: list[ScanResult] = []
+
     try:
-        result = scanner.scan_input(text, policy.disabled_rules, policy.disabled_categories)
+        for segment in scannable_segments:
+            segment_result = scanner.scan_input(segment.text, policy.disabled_rules, policy.disabled_categories)
+            results.append(_dedupe_against_seen(_tag_segment_result(segment_result, segment), seen))
+
+        if len(scannable_segments) > 1:
+            joined_result = scanner.scan_input(joined_text, policy.disabled_rules, policy.disabled_categories)
+            results.append(_dedupe_against_seen(_tag_joined_result(joined_result), seen))
     except Exception as exc:
         _record_scanner_error(event, exc)
         return None
 
-    return await _merge_semantic_scans(result, "input", text, event)
+    combined = merge_scan_results(ScanResult(), *results)
+    return await _merge_semantic_scans(combined, "input", joined_text, event)
+
+
+def _tag_segment_result(result: ScanResult, segment: PayloadTextSegment) -> ScanResult:
+    tags = _segment_tags(segment)
+    return ScanResult(
+        findings=[
+            replace(
+                finding,
+                source=_segment_source(segment, finding.source),
+                tags=tuple(dict.fromkeys((*finding.tags, *tags))),
+            )
+            for finding in result.findings
+        ],
+        redacted_text=result.redacted_text,
+    )
+
+
+def _tag_joined_result(result: ScanResult) -> ScanResult:
+    return ScanResult(
+        findings=[
+            replace(
+                finding,
+                source="request_joined" if finding.source == "plain" else f"request_joined:{finding.source}",
+                tags=tuple(dict.fromkeys((*finding.tags, "segment:request_joined"))),
+            )
+            for finding in result.findings
+        ],
+        redacted_text=result.redacted_text,
+    )
+
+
+def _segment_source(segment: PayloadTextSegment, original_source: str) -> str:
+    source = "tool_call" if segment.kind == "tool_call_arguments" else segment.kind
+    if original_source == "plain":
+        return source
+    return f"{source}:{original_source}"
+
+
+def _segment_tags(segment: PayloadTextSegment) -> tuple[str, ...]:
+    tags = [f"segment:{segment.kind}"]
+    if segment.role:
+        tags.append(f"role:{segment.role}")
+    return tuple(tags)
+
+
+def _dedupe_against_seen(result: ScanResult, seen: set[tuple[str, str, str, str]]) -> ScanResult:
+    findings: list[Finding] = []
+    for finding in result.findings:
+        key = (finding.rule_id, finding.category, finding.action, finding.evidence)
+        if key in seen:
+            continue
+        seen.add(key)
+        findings.append(finding)
+    return ScanResult(findings=findings, redacted_text=result.redacted_text)
 
 
 async def _scan_output_safely(text: str, policy: RoutePolicy, event: dict[str, Any]) -> ScanResult | None:

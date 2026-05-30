@@ -14,7 +14,7 @@ This document is intentionally explicit so users do not assume native protocol c
 | Anthropic native `POST /v1/messages` with `stream=false` | Supported | Input scan, input redaction, `system` text scan, `tool_result` scan, `tool_use.input` scan, output scan, output redaction, usage extraction, Anthropic header forwarding, and audit with `protocol=anthropic_native`. |
 | Anthropic native `POST /v1/messages` with `stream=true` | Supported | Protocol-specific SSE/event transformation for `content_block_delta` text, thinking, and `input_json_delta.partial_json`; rolling-window scan + one-frame hold-back by default; `message_start` / `message_delta` usage extraction; Anthropic header forwarding; audit with `protocol=anthropic_native`. |
 | OpenAI `/v1/responses` and legacy `/v1/completions` | Blocked by default | Not scanned by the current chat-completions WAF path. |
-| Gemini native `generateContent` / `streamGenerateContent` | Not supported natively | Use an OpenAI-compatible endpoint or adapter in front of LLM-WAF for now. |
+| Gemini native `generateContent` / `streamGenerateContent` | Not supported natively | Gemini routed through an OpenAI-compatible endpoint stays on the supported OpenAI-compatible WAF path. Native Gemini request/response shapes still need a dedicated adapter. |
 
 ## What "OpenAI-Compatible" Means Here
 
@@ -38,6 +38,8 @@ Providers are compatible when they use this shape closely enough that these extr
 DeepSeek is handled through this OpenAI-compatible path. There is no separate DeepSeek-native adapter because the practical integration surface is the OpenAI-compatible `/v1/chat/completions` schema.
 
 `UPSTREAM_BASE_URL` may be either SDK-style with `/v1` (`https://api.openai.com/v1`) or origin-style without `/v1` (`https://api.deepseek.com`). LLM-WAF avoids duplicating `/v1` when the upstream base URL already ends with that version segment.
+
+Gemini follows the same distinction: if a Gemini deployment exposes an OpenAI-compatible endpoint, LLM-WAF can protect it through the existing OpenAI-compatible path. Native Gemini protocol coverage still requires a dedicated adapter.
 
 ## Native Adapter Requirements
 
